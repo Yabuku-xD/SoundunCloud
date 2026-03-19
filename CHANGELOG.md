@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1 - 2026-03-19
+
+- Fixed short-height window behavior so the left rail no longer forces a full-viewport column on small vertical space
+- Let the player dock fall back into normal page flow on shorter windows, which keeps content reachable without waiting for a narrow-width breakpoint
+
 ## v0.3.0 - 2026-03-19
 
 - Added Tauri updater support so the installed desktop app can detect and install new releases in-app

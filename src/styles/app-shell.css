@@ -592,6 +592,29 @@ input:focus-visible {
   }
 }
 
+@media (max-height: 860px) {
+  .rail {
+    position: static;
+    min-height: auto;
+  }
+
+  .content {
+    padding-bottom: 24px;
+  }
+
+  .player-dock {
+    position: static;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    margin-top: 4px;
+  }
+
+  .shell {
+    padding-bottom: 24px;
+  }
+}
+
 @media (max-width: 1180px) {
   .signed-in-shell {
     grid-template-columns: 1fr;
