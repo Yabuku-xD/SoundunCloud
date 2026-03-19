@@ -16,7 +16,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
 #[cfg(target_os = "windows")]
-use window_vibrancy::{apply_acrylic, apply_blur};
+use window_vibrancy::apply_blur;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
@@ -978,9 +978,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.center();
 
-                if apply_acrylic(&window, Some((8, 8, 10, 42))).is_err() {
-                    let _ = apply_blur(&window, Some((10, 10, 12, 96)));
-                }
+                let _ = apply_blur(&window, Some((8, 8, 10, 132)));
 
                 let _ = window.show();
             }

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.7 - 2026-03-19
+
+- Darkened the glass tint so bright windows behind the app stop bleaching the startup shell into a washed-out grey
+- Rebuilt the Windows icon set around an official SoundCloud cloudmark-based app icon for the taskbar, installer, and packaged app
+- Kept the centered startup behavior from `v0.3.6` unchanged
+
 ## v0.3.6 - 2026-03-19
 
 - Removed the inner full-window outline from the startup shell so the glass surface feels cleaner

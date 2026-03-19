@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
   --bg: transparent;
-  --bg-elevated: rgba(8, 8, 10, 0.2);
-  --glass-shell: rgba(6, 6, 8, 0.12);
-  --glass-shell-strong: rgba(10, 10, 12, 0.18);
-  --panel: rgba(20, 20, 24, 0.14);
-  --panel-strong: rgba(14, 14, 16, 0.26);
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.14);
+  --bg-elevated: rgba(8, 8, 10, 0.24);
+  --glass-shell: rgba(8, 8, 10, 0.26);
+  --glass-shell-strong: rgba(10, 10, 12, 0.22);
+  --panel: rgba(18, 18, 22, 0.08);
+  --panel-strong: rgba(14, 14, 16, 0.22);
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.11);
   --text: #fcfcfd;
   --text-soft: rgba(252, 252, 253, 0.76);
   --text-faint: rgba(252, 252, 253, 0.48);
@@ -70,10 +70,10 @@ input:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.012)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.004)),
     var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: blur(42px) saturate(135%);
 }
 
 .shell {
@@ -93,11 +93,11 @@ input:focus-visible {
   background:
     radial-gradient(circle at 50% 18%, rgba(255, 85, 0, 0.12), transparent 16%),
     radial-gradient(circle at 68% 24%, rgba(255, 122, 0, 0.05), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.005)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.08)),
     var(--glass-shell);
   border: 0;
   box-shadow: none;
-  backdrop-filter: blur(28px) saturate(120%);
+  backdrop-filter: blur(26px) saturate(105%);
   pointer-events: none;
   z-index: 0;
 }
@@ -144,11 +144,11 @@ input:focus-visible {
   display: flex;
   gap: 8px;
   padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 20px;
-  background: rgba(12, 12, 14, 0.12);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(22px) saturate(145%);
+  background: rgba(10, 10, 12, 0.1);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(18px) saturate(120%);
   pointer-events: auto;
 }
 
@@ -160,10 +160,10 @@ input:focus-visible {
   height: 34px;
   border-radius: 12px;
   color: var(--text-soft);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--line);
   cursor: pointer;
-  backdrop-filter: blur(20px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(120%);
   transition:
     transform 140ms ease,
     background-color 140ms ease,
@@ -173,7 +173,7 @@ input:focus-visible {
 
 .window-frame__button:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .window-frame__button--danger:hover {
@@ -194,7 +194,7 @@ input:focus-visible {
   border: 1px solid var(--line);
   text-align: center;
   transform: translateX(-50%);
-  backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(120%);
 }
 
 .feedback--success {
