@@ -150,6 +150,72 @@ struct MeResponse {
     avatar_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundCloudTrackUser {
+    username: String,
+    full_name: Option<String>,
+    permalink_url: Option<String>,
+    avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundCloudTrack {
+    urn: String,
+    title: String,
+    permalink_url: String,
+    artwork_url: Option<String>,
+    #[serde(default)]
+    duration: u64,
+    #[serde(default)]
+    playback_count: u64,
+    #[serde(default)]
+    user_playback_count: u64,
+    #[serde(default)]
+    access: Option<String>,
+    user: Option<SoundCloudTrackUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundCloudPlaylist {
+    urn: String,
+    title: String,
+    permalink_url: String,
+    artwork_url: Option<String>,
+    #[serde(default)]
+    track_count: u64,
+    user: Option<SoundCloudTrackUser>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ApiCollection<T> {
+    Wrapped { collection: Vec<T> },
+    Plain(Vec<T>),
+}
+
+impl<T> ApiCollection<T> {
+    fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::Wrapped { collection } => collection,
+            Self::Plain(values) => values,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersonalizedHome {
+    viewer: AuthenticatedUser,
+    featured_track: Option<SoundCloudTrack>,
+    feed_tracks: Vec<SoundCloudTrack>,
+    liked_tracks: Vec<SoundCloudTrack>,
+    recent_tracks: Vec<SoundCloudTrack>,
+    playlists: Vec<SoundCloudPlaylist>,
+}
+
 struct ConfigResolution {
     config: Option<OAuthConfig>,
     config_source: String,
@@ -198,6 +264,47 @@ fn save_oauth_config(app: AppHandle, input: OAuthConfigInput) -> Result<(), Stri
 #[tauri::command]
 fn clear_local_session(app: AppHandle) -> Result<(), String> {
     clear_session_state(&app)
+}
+
+#[tauri::command]
+fn load_personalized_home(
+    app: AppHandle,
+    recent_track_urns: Vec<String>,
+) -> Result<PersonalizedHome, String> {
+    let config_resolution = load_effective_config(&app)?;
+    let session = load_session_file(&app, config_resolution.config.as_ref())?
+        .ok_or_else(|| "Sign in with SoundCloud before using the desktop app.".to_string())?;
+    let client = http_client(Duration::from_secs(20))?;
+
+    let feed_tracks = fetch_tracks(
+        &client,
+        &session.access_token,
+        "/me/feed/tracks?limit=12&linked_partitioning=true",
+    )?;
+    let liked_tracks = fetch_tracks(
+        &client,
+        &session.access_token,
+        "/me/likes/tracks?limit=12&linked_partitioning=true",
+    )?;
+    let playlists = fetch_playlists(
+        &client,
+        &session.access_token,
+        "/me/playlists?show_tracks=false&limit=8&linked_partitioning=true",
+    )?;
+    let recent_tracks = fetch_recent_tracks(&client, &session.access_token, &recent_track_urns)?;
+
+    Ok(PersonalizedHome {
+        viewer: session.user,
+        featured_track: feed_tracks
+            .first()
+            .cloned()
+            .or_else(|| liked_tracks.first().cloned())
+            .or_else(|| recent_tracks.first().cloned()),
+        feed_tracks,
+        liked_tracks,
+        recent_tracks,
+        playlists,
+    })
 }
 
 #[tauri::command]
@@ -428,27 +535,54 @@ fn refresh_token(
         .map_err(|error| format!("Could not decode the refreshed SoundCloud token: {error}"))
 }
 
+fn fetch_tracks(client: &Client, access_token: &str, path: &str) -> Result<Vec<SoundCloudTrack>, String> {
+    authorized_get_json::<ApiCollection<SoundCloudTrack>>(client, access_token, path).map(ApiCollection::into_vec)
+}
+
+fn fetch_playlists(
+    client: &Client,
+    access_token: &str,
+    path: &str,
+) -> Result<Vec<SoundCloudPlaylist>, String> {
+    authorized_get_json::<ApiCollection<SoundCloudPlaylist>>(client, access_token, path)
+        .map(ApiCollection::into_vec)
+}
+
+fn fetch_recent_tracks(
+    client: &Client,
+    access_token: &str,
+    recent_track_urns: &[String],
+) -> Result<Vec<SoundCloudTrack>, String> {
+    let recent_track_urns: Vec<String> = recent_track_urns
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .take(12)
+        .collect();
+
+    if recent_track_urns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query = recent_track_urns.join(",");
+    let mut resolved = fetch_tracks(
+        client,
+        access_token,
+        &format!("/tracks?urns={}&limit={}", urlencoding::encode(&query), recent_track_urns.len()),
+    )?;
+
+    resolved.sort_by_key(|track| {
+        recent_track_urns
+            .iter()
+            .position(|urn| urn == &track.urn)
+            .unwrap_or(usize::MAX)
+    });
+
+    Ok(resolved)
+}
+
 fn fetch_authenticated_user(client: &Client, access_token: &str) -> Result<AuthenticatedUser, String> {
-    let bearer_attempt = client
-        .get("https://api.soundcloud.com/me")
-        .header("accept", "application/json; charset=utf-8")
-        .header("Authorization", format!("Bearer {access_token}"))
-        .send();
-
-    let response = match bearer_attempt {
-        Ok(response) if response.status().is_success() => response,
-        _ => client
-            .get("https://api.soundcloud.com/me")
-            .header("accept", "application/json; charset=utf-8")
-            .header("Authorization", format!("OAuth {access_token}"))
-            .send()
-            .map_err(|error| format!("Could not load the authenticated SoundCloud profile: {error}"))?
-            .error_for_status()
-            .map_err(|error| format!("SoundCloud refused the authenticated profile request: {error}"))?,
-    };
-
-    let me = response
-        .json::<MeResponse>()
+    let me = authorized_get_json::<MeResponse>(client, access_token, "/me")
         .map_err(|error| format!("Could not parse the authenticated SoundCloud profile: {error}"))?;
 
     Ok(AuthenticatedUser {
@@ -457,6 +591,28 @@ fn fetch_authenticated_user(client: &Client, access_token: &str) -> Result<Authe
         permalink_url: me.permalink_url,
         avatar_url: me.avatar_url,
     })
+}
+
+fn authorized_get_json<T>(client: &Client, access_token: &str, path: &str) -> Result<T, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let url = if path.starts_with("http://") || path.starts_with("https://") {
+        path.to_string()
+    } else {
+        format!("https://api.soundcloud.com{path}")
+    };
+
+    client
+        .get(url)
+        .header("accept", "application/json; charset=utf-8")
+        .header("Authorization", format!("OAuth {access_token}"))
+        .send()
+        .map_err(|error| format!("Could not load SoundCloud data: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("SoundCloud rejected the request: {error}"))?
+        .json::<T>()
+        .map_err(|error| format!("Could not decode the SoundCloud response: {error}"))
 }
 
 fn write_browser_response(stream: &mut TcpStream, message: &str) -> Result<(), String> {
@@ -799,6 +955,7 @@ pub fn run() {
             begin_soundcloud_login,
             clear_local_session,
             desktop_context,
+            load_personalized_home,
             load_sounduncloud_snapshot,
             save_oauth_config
         ])

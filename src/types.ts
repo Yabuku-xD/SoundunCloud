@@ -28,6 +28,7 @@ export interface PlaybackSnapshot {
   durationMs: number;
   positionMs: number;
   artworkUrl?: string;
+  urn?: string;
 }
 
 export interface DesktopContext {
@@ -70,4 +71,41 @@ export interface OAuthConfigInput {
 export interface AuthLaunch {
   authorizeUrl: string;
   redirectUri: string;
+}
+
+export interface SoundCloudTrackUser {
+  username: string;
+  fullName?: string | null;
+  permalinkUrl?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface SoundCloudTrack {
+  urn: string;
+  title: string;
+  permalinkUrl: string;
+  artworkUrl?: string | null;
+  duration: number;
+  playbackCount: number;
+  userPlaybackCount: number;
+  access?: string | null;
+  user?: SoundCloudTrackUser | null;
+}
+
+export interface SoundCloudPlaylist {
+  urn: string;
+  title: string;
+  permalinkUrl: string;
+  artworkUrl?: string | null;
+  trackCount: number;
+  user?: SoundCloudTrackUser | null;
+}
+
+export interface PersonalizedHome {
+  viewer: AuthenticatedUser;
+  featuredTrack?: SoundCloudTrack | null;
+  feedTracks: SoundCloudTrack[];
+  likedTracks: SoundCloudTrack[];
+  recentTracks: SoundCloudTrack[];
+  playlists: SoundCloudPlaylist[];
 }

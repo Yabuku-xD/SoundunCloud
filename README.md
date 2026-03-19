@@ -10,12 +10,12 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.1.0-F28C52)
+![Version](https://img.shields.io/badge/version-v0.2.0-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
 
-SoundunCloud is a desktop-first SoundCloud client shell focused on fast startup, low memory use, local library tools, and a browser-driven sign-in flow that matches SoundCloud's current OAuth requirements. It is not affiliated with SoundCloud.
+SoundunCloud is a desktop-first SoundCloud client shell focused on fast startup, a minimal signed-in home, and a browser-driven sign-in flow that matches SoundCloud's current OAuth requirements. It is not affiliated with SoundCloud.
 
 ## Table of Contents
 
@@ -48,12 +48,12 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 ## Features
 
 - Native-feeling Windows desktop shell with custom chrome and Tauri packaging
-- Browser-based SoundCloud OAuth bootstrap for desktop sessions
-- Local storage for imported URLs, favorites, recent plays, and search history
-- Starter library of public SoundCloud stations and profiles
-- Embedded SoundCloud widget playback inside the app
+- Required browser-based SoundCloud OAuth bootstrap before the app home unlocks
+- Personalized signed-in home built from your SoundCloud feed, liked tracks, playlists, and recent desktop plays
+- Secure local storage for tokens and app secrets via OS-backed keyring storage
+- Embedded SoundCloud widget playback inside the app with a persistent desktop player dock
 - In-app OAuth configuration for `client_id`, `client_secret`, and redirect port
-- Search handoff to SoundCloud's web search when local results are not enough
+- Search handoff to SoundCloud's web search when you need results beyond the current home view
 
 ## Architecture
 
@@ -63,11 +63,11 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 ├───────────────────────────────┬────────────────────────────────────────────┤
 │ React / TypeScript UI         │ Rust / Tauri backend                       │
 │                               │                                            │
-│ • desktop shell               │ • app metadata                             │
-│ • auth setup form             │ • OAuth config persistence                 │
-│ • local library + favorites   │ • PKCE generation                          │
-│ • SoundCloud widget iframe    │ • loopback callback listener               │
-│ • browser handoff             │ • token exchange + /me lookup              │
+│ • signed-out auth gate        │ • app metadata                             │
+│ • personalized home           │ • OAuth config persistence                 │
+│ • home search + player dock   │ • secure keyring token storage             │
+│ • SoundCloud widget iframe    │ • PKCE generation                          │
+│ • browser handoff             │ • token exchange + /me/feed lookup         │
 ├───────────────────────────────┴────────────────────────────────────────────┤
 │ Browser OAuth                                                          │
 │ • opens SoundCloud authorize URL                                        │
@@ -103,10 +103,10 @@ The Windows installer `.exe` is emitted under `src-tauri/target/release/bundle/n
 ## Usage
 
 1. Launch the desktop app.
-2. Paste public SoundCloud URLs to build a local listening library.
-3. Save your SoundCloud OAuth app credentials in the sidebar.
-4. Register the same redirect URI in your SoundCloud app settings.
-5. Click `Sign in with SoundCloud` to complete browser-based OAuth.
+2. Save your SoundCloud OAuth app credentials if they are not already configured.
+3. Register the same redirect URI in your SoundCloud app settings.
+4. Click `Sign in with SoundCloud` to complete browser-based OAuth.
+5. Return to the desktop app to see your personalized home feed.
 
 ## Configuration
 
@@ -120,7 +120,7 @@ Use the sidebar form to save:
 - `client_secret`
 - `redirect_port`
 
-These values are stored locally in the app data directory for this desktop install.
+The client secret and session tokens are stored through secure local credential storage. Non-secret metadata stays in the app data directory for this desktop install.
 
 ### Environment fallback
 
@@ -150,9 +150,9 @@ For the official references, see:
 ## Roadmap
 
 - Native media key handling and richer Windows session controls
-- Secure secret storage instead of plain local config
-- Authenticated library sync for likes, playlists, and profile data
-- Better design polish for search, queue management, and account pages
+- Search, queue, and section expansion beyond the current minimal home
+- Profile, repost, and following surfaces beyond the initial personalized feed
+- Better account tools and richer playback controls
 - Optional tray mode and background playback controls
 
 ## Contributing

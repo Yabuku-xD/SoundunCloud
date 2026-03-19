@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.0 - 2026-03-19
+
+- Rebuilt the desktop flow around a required browser-based SoundCloud sign-in gate
+- Added a personalized signed-in home powered by SoundCloud feed, likes, playlists, and local recent plays
+- Simplified the app shell into a more minimal layout with a persistent bottom player dock
+- Kept review fixes in place, including secure token storage, auth timeout handling, keyboard focus, live feedback, and better small-window behavior
+
 ## v0.1.1 - 2026-03-19
 
 - Reworked the desktop UI with a calmer editorial layout and stronger hierarchy
