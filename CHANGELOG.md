@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.4 - 2026-03-19
+
+- Switched the UI to a system monospace stack for a more technical, restrained shell
+- Reworked the glass treatment so the centered startup card reads as frosted glass instead of a flat dark block
+- Tuned the window translucency to be lighter and cleaner without relying on staging another app behind it
+
 ## v0.3.3 - 2026-03-19
 
 - Added a glassmorphic frameless window shell with real Windows blur so the desktop app subtly reveals what is behind it instead of reading as a flat black slab
