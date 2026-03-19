@@ -25,6 +25,7 @@ import {
 import {
   type FormEvent,
   type ReactNode,
+  useDeferredValue,
   useEffect,
   useEffectEvent,
   useRef,
@@ -105,6 +106,7 @@ function App() {
   const widgetRef = useRef<SoundCloudWidget | null>(null);
   const activeUrlRef = useRef<string>(starterStations[0].url);
   const loadedUrlRef = useRef<string>("");
+  const deferredQuery = useDeferredValue(query);
 
   const activeItem =
     catalog.find((item) => item.id === activeId) ??
@@ -113,7 +115,7 @@ function App() {
 
   activeUrlRef.current = activeItem.url;
 
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = deferredQuery.trim().toLowerCase();
   const filteredCatalog = normalizedQuery
     ? catalog.filter((item) =>
         [item.title, item.subtitle, item.description, item.url, ...item.tags]
@@ -164,10 +166,12 @@ function App() {
       );
       setSnapshot(nextSnapshot);
       setAuthForm((current) => ({
-        ...current,
-        redirectPort: Number.isFinite(current.redirectPort)
-          ? current.redirectPort
-          : 8976,
+        clientId: current.clientId || nextSnapshot.storedClientId || "",
+        clientSecret: current.clientSecret,
+        redirectPort:
+          Number.isFinite(current.redirectPort) && current.redirectPort
+            ? current.redirectPort
+            : extractPortFromRedirectUri(nextSnapshot.redirectUri),
       }));
     } catch {
       setSnapshot(null);
@@ -214,7 +218,7 @@ function App() {
         setIsAuthorizing(false);
         setFeedback({
           tone: "success",
-          message: `Signed in as ${event.payload.username}. Your SoundCloud session is now attached to the desktop app.`,
+          message: `Signed in as ${event.payload.username}. SoundunCloud attached the session securely to this desktop app.`,
         });
         void refreshSnapshot();
       },
@@ -412,7 +416,8 @@ function App() {
       setUrlInput("");
       setFeedback({
         tone: "info",
-        message: "That SoundCloud page is already in your local library, so I queued it up.",
+        message:
+          "That SoundCloud page is already in your library, so SoundunCloud queued it up instead of duplicating it.",
       });
       return;
     }
@@ -439,7 +444,7 @@ function App() {
       setUrlInput("");
       setFeedback({
         tone: "success",
-        message: `${metadata.title} is now pinned inside SoundunCloud.`,
+        message: `${metadata.title} is now in your local library.`,
       });
     } catch (error) {
       setFeedback({
@@ -496,7 +501,7 @@ function App() {
       setFeedback({
         tone: "success",
         message:
-          "Desktop OAuth settings saved. Register the same redirect URI in your SoundCloud app before signing in.",
+          "Desktop OAuth settings saved. The client secret is now stored in secure local storage, not plaintext app files.",
       });
       await refreshSnapshot();
       setAuthForm((current) => ({ ...current, clientSecret: "" }));
@@ -540,7 +545,7 @@ function App() {
     await invoke("clear_local_session");
     setFeedback({
       tone: "info",
-      message: "The local SoundunCloud session has been cleared from this desktop app.",
+      message: "The local SoundunCloud session has been cleared from this device.",
     });
     await refreshSnapshot();
   };
@@ -549,7 +554,6 @@ function App() {
     <div className="app-shell">
       <div
         className="titlebar"
-        data-tauri-drag-region
         onDoubleClick={() => {
           void handleToggleMaximize();
         }}
@@ -564,12 +568,26 @@ function App() {
           </div>
         </div>
 
-        <label className="search-shell" aria-label="Search your local library">
+        <div
+          className="titlebar-drag"
+          data-tauri-drag-region
+          onDoubleClick={() => {
+            void handleToggleMaximize();
+          }}
+        >
+          <span>Drag window</span>
+        </div>
+
+        <label className="search-shell">
           <Search size={16} strokeWidth={2.2} />
           <input
             value={query}
+            name="library-search"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Search your local library"
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search starter stations, imported URLs, tags, or artists"
+            placeholder="Search starter stations, imported URLs, tags, or artists…"
           />
         </label>
 
@@ -609,14 +627,31 @@ function App() {
 
       <div className="workspace">
         <aside className="sidebar panel">
-          <div className="nav-list">
-            <NavPill icon={<Sparkles size={16} />} label="Home feed" isActive />
-            <NavPill icon={<LibraryBig size={16} />} label="Library" />
-            <NavPill icon={<LockKeyhole size={16} />} label="Auth" />
-            <NavPill icon={<Settings2 size={16} />} label="Settings" />
-          </div>
+          <nav className="nav-list" aria-label="Primary navigation">
+            <NavPill
+              icon={<Sparkles size={16} />}
+              label="Home feed"
+              isActive
+              onSelect={() => jumpToSection("home-feed")}
+            />
+            <NavPill
+              icon={<LibraryBig size={16} />}
+              label="Library"
+              onSelect={() => jumpToSection("library-section")}
+            />
+            <NavPill
+              icon={<LockKeyhole size={16} />}
+              label="Auth"
+              onSelect={() => jumpToSection("auth-section")}
+            />
+            <NavPill
+              icon={<Settings2 size={16} />}
+              label="Settings"
+              onSelect={() => jumpToSection("settings-section")}
+            />
+          </nav>
 
-          <div className="sidebar-group">
+          <div className="sidebar-group" id="auth-section">
             <SectionTitle icon={<UserRound size={16} />} title="Account" />
             {authenticatedUser ? (
               <div className="account-card">
@@ -636,8 +671,8 @@ function App() {
                   </div>
                 </div>
                 <p className="support-copy">
-                  Browser OAuth is configured and this desktop build has an active
-                  local SoundCloud session.
+                  Browser OAuth is configured and this desktop build has an active,
+                  securely stored SoundCloud session.
                 </p>
                 <div className="stacked-actions">
                   {authenticatedUser.permalinkUrl ? (
@@ -669,7 +704,7 @@ function App() {
                 <p className="support-copy">
                   SoundunCloud uses browser-based OAuth 2.1 with PKCE. Save your
                   approved SoundCloud app credentials below, then sign in through
-                  the browser.
+                  the browser. Secrets stay in secure local storage.
                 </p>
                 <div className="desktop-badges">
                   <Badge text={snapshot?.oauthConfigured ? "OAuth ready" : "Needs client setup"} />
@@ -686,6 +721,9 @@ function App() {
                 <span>Client ID</span>
                 <input
                   value={authForm.clientId}
+                  name="client-id"
+                  autoComplete="off"
+                  spellCheck={false}
                   onChange={(event) =>
                     setAuthForm((current) => ({
                       ...current,
@@ -700,6 +738,9 @@ function App() {
                 <input
                   type="password"
                   value={authForm.clientSecret}
+                  name="client-secret"
+                  autoComplete="new-password"
+                  spellCheck={false}
                   onChange={(event) =>
                     setAuthForm((current) => ({
                       ...current,
@@ -713,6 +754,7 @@ function App() {
                 <span>Redirect port</span>
                 <input
                   type="number"
+                  name="redirect-port"
                   min={1024}
                   max={65535}
                   value={authForm.redirectPort}
@@ -726,7 +768,7 @@ function App() {
               </label>
               <button type="submit" className="primary-button" disabled={isSavingConfig}>
                 {isSavingConfig ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />}
-                Save OAuth settings
+                Save secure OAuth settings
               </button>
             </form>
             <button
@@ -750,7 +792,7 @@ function App() {
             </div>
           </div>
 
-          <div className="sidebar-group sidebar-group--bottom">
+          <div className="sidebar-group sidebar-group--bottom" id="library-section">
             <SectionTitle icon={<Heart size={16} />} title="Pinned library" />
             <ul className="compact-list">
               {favoriteItems.length ? (
@@ -779,18 +821,18 @@ function App() {
         </aside>
 
         <main className="content">
-          <section className={`hero panel hero-${featuredItem.tone}`}>
+          <section className={`hero panel hero-${featuredItem.tone}`} id="home-feed">
             <div className="hero-copy">
-              <p className="eyebrow">Rust-native playback shell, browser-native auth</p>
+              <p className="eyebrow">Editorial desktop shell, browser-native auth</p>
               <h2>
-                A sharper SoundCloud desktop.
-                <span> Faster shell, calmer navigation, real browser sign-in.</span>
+                A quieter SoundCloud desktop.
+                <span> More precise hierarchy, calmer navigation, real browser sign-in.</span>
               </h2>
               <p className="hero-summary">
-                SoundunCloud keeps the desktop app lightweight while respecting
-                SoundCloud&apos;s current OAuth 2.1 flow. Import public tracks or
-                profiles, browse a darker media-forward layout, and attach an
-                authenticated SoundCloud account through your browser.
+                SoundunCloud keeps the shell lightweight while giving the interface
+                more breathing room. Import public tracks or profiles, browse a more
+                focused desktop layout, and attach an authenticated account through
+                your browser.
               </p>
 
               <div className="hero-actions">
@@ -817,38 +859,48 @@ function App() {
                   }}
                 >
                   <ExternalLink size={16} />
-                  Review SoundCloud auth docs
+                  Review auth docs
                 </button>
               </div>
 
               <form className="import-form" onSubmit={handleAddUrl}>
-                <label className="import-input" aria-label="Paste a SoundCloud URL">
+                <label className="import-input">
                   <Import size={16} strokeWidth={2.2} />
                   <input
                     value={urlInput}
+                    name="soundcloud-url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="Paste a SoundCloud URL"
                     onChange={(event) => setUrlInput(event.currentTarget.value)}
-                    placeholder="Paste any public SoundCloud track, playlist, or profile URL"
+                    placeholder="Paste any public SoundCloud track, playlist, or profile URL…"
                   />
                 </label>
                 <button type="submit" className="cta-button" disabled={isAddingUrl}>
-                  {isAddingUrl ? "Importing..." : "Import URL"}
+                  {isAddingUrl ? "Importing…" : "Import URL"}
                 </button>
               </form>
 
               {feedback ? (
-                <p className={`feedback feedback-${feedback.tone}`}>{feedback.message}</p>
+                <p
+                  className={`feedback feedback-${feedback.tone}`}
+                  role={feedback.tone === "error" ? "alert" : "status"}
+                  aria-live={feedback.tone === "error" ? "assertive" : "polite"}
+                >
+                  {feedback.message}
+                </p>
               ) : null}
             </div>
 
             <div className="hero-panel">
               <div className="hero-current">
-                <p className="eyebrow">Launch checklist</p>
+                <p className="eyebrow">Listening cue</p>
                 <h3>{featuredItem.title}</h3>
                 <p>{featuredItem.description}</p>
               </div>
               <ul className="check-list">
                 <li>Register a SoundCloud app and add the redirect URI shown in-app.</li>
-                <li>Save `client_id` and `client_secret` locally inside SoundunCloud.</li>
+                <li>Save `client_id` and `client_secret` so SoundunCloud can store them securely.</li>
                 <li>Use the browser-based sign-in button to attach the desktop session.</li>
               </ul>
             </div>
@@ -869,18 +921,37 @@ function App() {
               }}
             />
 
-            <div className="station-grid">
-              {filteredCatalog.map((item) => (
-                <StationCard
-                  key={item.id}
-                  item={item}
-                  isActive={item.id === activeItem.id}
-                  isFavorite={favoritesSet.has(item.id)}
-                  onToggleFavorite={() => toggleFavorite(item.id)}
-                  onSelect={() => selectItem(item)}
-                />
-              ))}
-            </div>
+            {filteredCatalog.length ? (
+              <div className="station-grid">
+                {filteredCatalog.map((item) => (
+                  <StationCard
+                    key={item.id}
+                    item={item}
+                    isActive={item.id === activeItem.id}
+                    isFavorite={favoritesSet.has(item.id)}
+                    onToggleFavorite={() => toggleFavorite(item.id)}
+                    onSelect={() => selectItem(item)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="empty-panel">
+                <h3>Nothing matched that search.</h3>
+                <p className="support-copy">
+                  Try a different artist, tag, or mood, or search directly on SoundCloud.
+                </p>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    void handleOpenSearch(query);
+                  }}
+                >
+                  <ExternalLink size={16} />
+                  Search on SoundCloud
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="bottom-grid">
@@ -1007,6 +1078,7 @@ function App() {
                 className={`transport-button ${
                   favoritesSet.has(activeItem.id) ? "transport-button--saved" : ""
                 }`}
+                aria-pressed={favoritesSet.has(activeItem.id)}
                 aria-label={
                   favoritesSet.has(activeItem.id)
                     ? "Remove from favorites"
@@ -1021,7 +1093,14 @@ function App() {
               </button>
             </div>
 
-            <div className="progress-shell" aria-hidden="true">
+            <div
+              className="progress-shell"
+              role="progressbar"
+              aria-label="Playback progress"
+              aria-valuemin={0}
+              aria-valuemax={playbackSnapshot.durationMs || 1}
+              aria-valuenow={playbackSnapshot.positionMs}
+            >
               <div
                 className="progress-value"
                 style={{
@@ -1054,7 +1133,7 @@ function App() {
             />
           </div>
 
-          <div className="player-footer">
+          <div className="player-footer" id="settings-section">
             <button
               type="button"
               className="ghost-button ghost-button--full"
@@ -1084,16 +1163,23 @@ function NavPill({
   icon,
   label,
   isActive = false,
+  onSelect,
 }: {
   icon: ReactNode;
   label: string;
   isActive?: boolean;
+  onSelect: () => void;
 }) {
   return (
-    <div className={`nav-pill ${isActive ? "nav-pill--active" : ""}`}>
+    <button
+      type="button"
+      className={`nav-pill ${isActive ? "nav-pill--active" : ""}`}
+      aria-pressed={isActive}
+      onClick={onSelect}
+    >
       {icon}
       <span>{label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -1169,6 +1255,7 @@ function StationCard({
       <button
         type="button"
         className={`favorite-button ${isFavorite ? "favorite-button--active" : ""}`}
+        aria-pressed={isFavorite}
         aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
         onClick={onToggleFavorite}
       >
@@ -1188,6 +1275,21 @@ function formatDuration(value: number) {
   const seconds = totalSeconds % 60;
 
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function extractPortFromRedirectUri(redirectUri: string) {
+  try {
+    return Number(new URL(redirectUri).port) || 8976;
+  } catch {
+    return 8976;
+  }
+}
+
+function jumpToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
 }
 
 export default App;

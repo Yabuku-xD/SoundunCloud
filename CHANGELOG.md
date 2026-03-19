@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1 - 2026-03-19
+
+- Reworked the desktop UI with a calmer editorial layout and stronger hierarchy
+- Fixed keyboard focus, empty states, live status messaging, and reduced-motion handling
+- Moved OAuth secrets and session tokens into secure local storage with session refresh handling
+- Added a dedicated drag handle so the undecorated desktop window can be moved reliably
+
 ## v0.1.0 - 2026-03-19
 
 - Initial `SoundunCloud` release scaffold

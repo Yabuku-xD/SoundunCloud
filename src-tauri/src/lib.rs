@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use keyring::{Entry, Error as KeyringError};
 use rand::{distr::Alphanumeric, Rng};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -6,10 +7,11 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
@@ -19,6 +21,12 @@ const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
 const AUTH_EVENT_SUCCESS: &str = "sounduncloud://auth-success";
 const AUTH_EVENT_ERROR: &str = "sounduncloud://auth-error";
 const DEFAULT_REDIRECT_PORT: u16 = 8976;
+const KEYRING_SERVICE: &str = "com.yabuku.sounduncloud";
+const CONFIG_SECRET_ENTRY: &str = "oauth-client-secret";
+const SESSION_SECRET_ENTRY: &str = "oauth-session";
+const AUTH_ACCEPT_TIMEOUT: Duration = Duration::from_secs(180);
+const AUTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const REFRESH_GRACE_SECONDS: u64 = 45;
 
 #[derive(Clone, Default)]
 struct AuthRuntime {
@@ -37,9 +45,23 @@ struct DesktopContext {
     build_profile: String,
 }
 
+#[derive(Debug, Clone)]
+struct OAuthConfig {
+    client_id: String,
+    client_secret: String,
+    redirect_port: u16,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct OAuthConfig {
+struct StoredOAuthConfig {
+    client_id: String,
+    redirect_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyOAuthConfig {
     client_id: String,
     client_secret: String,
     redirect_port: u16,
@@ -54,9 +76,31 @@ struct AuthenticatedUser {
     avatar_url: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct PersistedSession {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at: u64,
+    user: AuthenticatedUser,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PersistedSession {
+struct StoredSessionMetadata {
+    expires_at: u64,
+    user: AuthenticatedUser,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSecrets {
+    access_token: String,
+    refresh_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyPersistedSession {
     access_token: String,
     refresh_token: Option<String>,
     expires_at: u64,
@@ -72,6 +116,8 @@ struct SoundunCloudSnapshot {
     has_local_session: bool,
     authenticated_user: Option<AuthenticatedUser>,
     config_source: String,
+    stored_client_id: Option<String>,
+    uses_secure_storage: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +150,13 @@ struct MeResponse {
     avatar_url: Option<String>,
 }
 
+struct ConfigResolution {
+    config: Option<OAuthConfig>,
+    config_source: String,
+    stored_client_id: Option<String>,
+    redirect_port: u16,
+}
+
 #[tauri::command]
 fn desktop_context(app: AppHandle) -> DesktopContext {
     build_desktop_context(&app)
@@ -112,22 +165,18 @@ fn desktop_context(app: AppHandle) -> DesktopContext {
 #[tauri::command]
 fn load_sounduncloud_snapshot(app: AppHandle) -> Result<SoundunCloudSnapshot, String> {
     let desktop_context = build_desktop_context(&app);
-    let config = load_effective_config(&app)?;
-    let session = load_session_file(&app)?;
+    let config_resolution = load_effective_config(&app)?;
+    let session = load_session_file(&app, config_resolution.config.as_ref())?;
 
     Ok(SoundunCloudSnapshot {
         desktop_context,
-        oauth_configured: config.is_some(),
-        redirect_uri: build_redirect_uri(config.as_ref().map_or(DEFAULT_REDIRECT_PORT, |cfg| cfg.redirect_port)),
+        oauth_configured: config_resolution.config.is_some(),
+        redirect_uri: build_redirect_uri(config_resolution.redirect_port),
         has_local_session: session.is_some(),
         authenticated_user: session.map(|stored| stored.user),
-        config_source: if load_config_file(&app)?.is_some() {
-            "app-storage".into()
-        } else if load_config_from_env().is_some() {
-            "environment".into()
-        } else {
-            "missing".into()
-        },
+        config_source: config_resolution.config_source,
+        stored_client_id: config_resolution.stored_client_id,
+        uses_secure_storage: true,
     })
 }
 
@@ -137,22 +186,18 @@ fn save_oauth_config(app: AppHandle, input: OAuthConfigInput) -> Result<(), Stri
         return Err("Client ID and client secret are required.".into());
     }
 
-    let config = OAuthConfig {
+    let config = StoredOAuthConfig {
         client_id: input.client_id.trim().to_string(),
-        client_secret: input.client_secret.trim().to_string(),
         redirect_port: sanitize_port(input.redirect_port),
     };
 
-    write_json_file(&app, CONFIG_FILE_NAME, &config)
+    write_json_file(&app, CONFIG_FILE_NAME, &config)?;
+    write_keyring_secret(CONFIG_SECRET_ENTRY, input.client_secret.trim())
 }
 
 #[tauri::command]
 fn clear_local_session(app: AppHandle) -> Result<(), String> {
-    let session_path = app_file_path(&app, SESSION_FILE_NAME)?;
-    if session_path.exists() {
-        fs::remove_file(session_path).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    clear_session_state(&app)
 }
 
 #[tauri::command]
@@ -161,6 +206,7 @@ fn begin_soundcloud_login(
     runtime: State<SharedAuthRuntime>,
 ) -> Result<AuthLaunch, String> {
     let config = load_effective_config(&app)?
+        .config
         .ok_or_else(|| "Save your SoundCloud client settings before signing in.".to_string())?;
 
     {
@@ -177,7 +223,7 @@ fn begin_soundcloud_login(
     let listener = TcpListener::bind(("127.0.0.1", config.redirect_port))
         .map_err(|_| format!("Port {} is unavailable for the OAuth callback.", config.redirect_port))?;
     listener
-        .set_nonblocking(false)
+        .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
 
     let state = random_url_safe(24);
@@ -195,7 +241,7 @@ fn begin_soundcloud_login(
     let runtime_handle = runtime.inner().clone();
     let callback_redirect_uri = redirect_uri.clone();
 
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         let result = complete_browser_flow(
             &app_handle,
             listener,
@@ -205,9 +251,8 @@ fn begin_soundcloud_login(
             &code_verifier,
         );
 
-        let mut guard = runtime_handle.lock().ok();
-        if let Some(runtime) = guard.as_mut() {
-            runtime.is_authorizing = false;
+        if let Ok(mut auth_runtime) = runtime_handle.lock() {
+            auth_runtime.is_authorizing = false;
         }
 
         match result {
@@ -234,32 +279,34 @@ fn complete_browser_flow(
     expected_state: &str,
     code_verifier: &str,
 ) -> Result<AuthenticatedUser, String> {
-    listener
-        .set_ttl(1)
-        .map_err(|error| format!("Could not prepare callback listener: {error}"))?;
+    let started = Instant::now();
+    let mut stream = None;
 
-    let (mut stream, _) = listener
-        .accept()
-        .map_err(|error| format!("OAuth callback was not received: {error}"))?;
+    while started.elapsed() < AUTH_ACCEPT_TIMEOUT {
+        match listener.accept() {
+            Ok((accepted_stream, _)) => {
+                stream = Some(accepted_stream);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(AUTH_POLL_INTERVAL);
+            }
+            Err(error) => {
+                return Err(format!("OAuth callback was not received: {error}"));
+            }
+        }
+    }
+
+    let mut stream = stream.ok_or_else(|| {
+        "SoundCloud sign-in timed out before the browser returned to the desktop app.".to_string()
+    })?;
 
     stream
-        .set_read_timeout(Some(Duration::from_secs(120)))
+        .set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|error| error.to_string())?;
 
-    let mut buffer = [0_u8; 8192];
-    let bytes_read = stream
-        .read(&mut buffer)
-        .map_err(|error| format!("Could not read OAuth callback: {error}"))?;
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let request_line = request
-        .lines()
-        .next()
-        .ok_or_else(|| "OAuth callback request was empty.".to_string())?;
-    let request_target = request_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| "OAuth callback request line was invalid.".to_string())?;
-    let callback_url = Url::parse(&format!("http://127.0.0.1{}", request_target))
+    let request_target = read_callback_request_target(&mut stream)?;
+    let callback_url = Url::parse(&format!("http://127.0.0.1{request_target}"))
         .map_err(|error| format!("Could not parse callback URL: {error}"))?;
 
     let mut code = None;
@@ -291,36 +338,46 @@ fn complete_browser_flow(
         return Err("OAuth state verification failed.".into());
     }
 
-    let auth_code = code.ok_or_else(|| "SoundCloud did not return an authorization code.".to_string())?;
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let auth_code =
+        code.ok_or_else(|| "SoundCloud did not return an authorization code.".to_string())?;
+    let client = http_client(Duration::from_secs(30))?;
 
-    let token = exchange_code_for_token(
-        &client,
-        config,
-        redirect_uri,
-        code_verifier,
-        &auth_code,
-    )?;
+    let token = exchange_code_for_token(&client, config, redirect_uri, code_verifier, &auth_code)?;
     let user = fetch_authenticated_user(&client, &token.access_token)?;
-    let expires_at = current_epoch_seconds().saturating_add(token.expires_in);
+    save_session_file(
+        app,
+        PersistedSession {
+            access_token: token.access_token,
+            refresh_token: token.refresh_token,
+            expires_at: current_epoch_seconds().saturating_add(token.expires_in),
+            user: user.clone(),
+        },
+    )?;
 
-    let session = PersistedSession {
-        access_token: token.access_token,
-        refresh_token: token.refresh_token,
-        expires_at,
-        user: user.clone(),
-    };
-
-    write_json_file(app, SESSION_FILE_NAME, &session)?;
     write_browser_response(
         &mut stream,
         "SoundunCloud sign-in is complete. You can close this browser tab and return to the app.",
     )?;
 
     Ok(user)
+}
+
+fn read_callback_request_target(stream: &mut TcpStream) -> Result<String, String> {
+    let mut buffer = [0_u8; 8192];
+    let bytes_read = stream
+        .read(&mut buffer)
+        .map_err(|error| format!("Could not read OAuth callback: {error}"))?;
+    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request_line = request
+        .lines()
+        .next()
+        .ok_or_else(|| "OAuth callback request was empty.".to_string())?;
+
+    request_line
+        .split_whitespace()
+        .nth(1)
+        .map(str::to_string)
+        .ok_or_else(|| "OAuth callback request line was invalid.".to_string())
 }
 
 fn exchange_code_for_token(
@@ -347,6 +404,28 @@ fn exchange_code_for_token(
         .map_err(|error| format!("SoundCloud rejected the auth code exchange: {error}"))?
         .json::<OAuthTokenResponse>()
         .map_err(|error| format!("Could not decode the SoundCloud token response: {error}"))
+}
+
+fn refresh_token(
+    client: &Client,
+    config: &OAuthConfig,
+    refresh_token: &str,
+) -> Result<OAuthTokenResponse, String> {
+    client
+        .post("https://secure.soundcloud.com/oauth/token")
+        .header("accept", "application/json; charset=utf-8")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .map_err(|error| format!("Could not refresh the SoundCloud session: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("SoundCloud rejected the stored session refresh: {error}"))?
+        .json::<OAuthTokenResponse>()
+        .map_err(|error| format!("Could not decode the refreshed SoundCloud token: {error}"))
 }
 
 fn fetch_authenticated_user(client: &Client, access_token: &str) -> Result<AuthenticatedUser, String> {
@@ -380,9 +459,9 @@ fn fetch_authenticated_user(client: &Client, access_token: &str) -> Result<Authe
     })
 }
 
-fn write_browser_response(stream: &mut std::net::TcpStream, message: &str) -> Result<(), String> {
+fn write_browser_response(stream: &mut TcpStream, message: &str) -> Result<(), String> {
     let body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>SoundunCloud</title><style>body{{margin:0;font-family:Segoe UI,sans-serif;background:#0d1117;color:#f4f7fb;display:grid;place-items:center;min-height:100vh}}main{{max-width:560px;padding:32px;border:1px solid rgba(255,255,255,.08);border-radius:24px;background:rgba(255,255,255,.03)}}h1{{margin-top:0}}p{{color:rgba(244,247,251,.72);line-height:1.6}}</style></head><body><main><h1>SoundunCloud</h1><p>{message}</p></main></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>SoundunCloud</title><style>body{{margin:0;font-family:Segoe UI,sans-serif;background:#111315;color:#f3efe7;display:grid;place-items:center;min-height:100vh}}main{{max-width:560px;padding:32px;border:1px solid rgba(255,255,255,.08);border-radius:28px;background:#171b1f;box-shadow:0 20px 60px rgba(0,0,0,.32)}}h1{{margin:0 0 12px;font-size:2rem}}p{{margin:0;color:rgba(243,239,231,.76);line-height:1.7}}</style></head><body><main><h1>SoundunCloud</h1><p>{message}</p></main></body></html>"
     );
 
     let response = format!(
@@ -396,16 +475,177 @@ fn write_browser_response(stream: &mut std::net::TcpStream, message: &str) -> Re
         .map_err(|error| format!("Could not write the browser response: {error}"))
 }
 
-fn load_effective_config(app: &AppHandle) -> Result<Option<OAuthConfig>, String> {
-    Ok(load_config_file(app)?.or_else(load_config_from_env))
+fn load_effective_config(app: &AppHandle) -> Result<ConfigResolution, String> {
+    let local_config = load_local_config_file(app)?;
+    let env_config = load_config_from_env();
+
+    if let Some(local) = local_config {
+        let secret = load_keyring_secret(CONFIG_SECRET_ENTRY)?;
+        return Ok(ConfigResolution {
+            config: secret.map(|client_secret| OAuthConfig {
+                client_id: local.client_id.clone(),
+                client_secret,
+                redirect_port: local.redirect_port,
+            }),
+            config_source: "app-storage".into(),
+            stored_client_id: Some(local.client_id),
+            redirect_port: local.redirect_port,
+        });
+    }
+
+    let redirect_port = env_config
+        .as_ref()
+        .map(|config| config.redirect_port)
+        .unwrap_or(DEFAULT_REDIRECT_PORT);
+
+    Ok(ConfigResolution {
+        config: env_config.clone(),
+        config_source: if env_config.is_some() {
+            "environment".into()
+        } else {
+            "missing".into()
+        },
+        stored_client_id: env_config.map(|config| config.client_id),
+        redirect_port,
+    })
 }
 
-fn load_config_file(app: &AppHandle) -> Result<Option<OAuthConfig>, String> {
-    read_json_file(app, CONFIG_FILE_NAME)
+fn load_local_config_file(app: &AppHandle) -> Result<Option<StoredOAuthConfig>, String> {
+    let path = app_file_path(app, CONFIG_FILE_NAME)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+
+    if let Ok(legacy) = serde_json::from_str::<LegacyOAuthConfig>(&raw) {
+        let migrated = StoredOAuthConfig {
+            client_id: legacy.client_id,
+            redirect_port: sanitize_port(legacy.redirect_port),
+        };
+        write_keyring_secret(CONFIG_SECRET_ENTRY, &legacy.client_secret)?;
+        write_json_file(app, CONFIG_FILE_NAME, &migrated)?;
+        return Ok(Some(migrated));
+    }
+
+    let stored =
+        serde_json::from_str::<StoredOAuthConfig>(&raw).map_err(|error| error.to_string())?;
+    Ok(Some(StoredOAuthConfig {
+        client_id: stored.client_id,
+        redirect_port: sanitize_port(stored.redirect_port),
+    }))
 }
 
-fn load_session_file(app: &AppHandle) -> Result<Option<PersistedSession>, String> {
+fn load_session_file(
+    app: &AppHandle,
+    config: Option<&OAuthConfig>,
+) -> Result<Option<PersistedSession>, String> {
+    let metadata = load_session_metadata(app)?;
+    let Some(metadata) = metadata else {
+        return Ok(None);
+    };
+
+    let secrets = load_session_secrets()?;
+    let Some(secrets) = secrets else {
+        clear_session_state(app)?;
+        return Ok(None);
+    };
+
+    let mut session = PersistedSession {
+        access_token: secrets.access_token,
+        refresh_token: secrets.refresh_token,
+        expires_at: metadata.expires_at,
+        user: metadata.user,
+    };
+
+    let now = current_epoch_seconds();
+    if session.expires_at <= now.saturating_add(REFRESH_GRACE_SECONDS) {
+        let Some(config) = config else {
+            clear_session_state(app)?;
+            return Ok(None);
+        };
+        let Some(stored_refresh_token) = session.refresh_token.clone() else {
+            clear_session_state(app)?;
+            return Ok(None);
+        };
+
+        let client = http_client(Duration::from_secs(30))?;
+        let refreshed = match refresh_token(&client, config, &stored_refresh_token) {
+            Ok(token) => token,
+            Err(_) => {
+                clear_session_state(app)?;
+                return Ok(None);
+            }
+        };
+
+        let user = fetch_authenticated_user(&client, &refreshed.access_token)?;
+        session = PersistedSession {
+            access_token: refreshed.access_token,
+            refresh_token: refreshed.refresh_token.or(Some(stored_refresh_token)),
+            expires_at: now.saturating_add(refreshed.expires_in),
+            user,
+        };
+        save_session_file(app, session.clone())?;
+    }
+
+    Ok(Some(session))
+}
+
+fn load_session_metadata(app: &AppHandle) -> Result<Option<StoredSessionMetadata>, String> {
+    let path = app_file_path(app, SESSION_FILE_NAME)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+
+    if let Ok(legacy) = serde_json::from_str::<LegacyPersistedSession>(&raw) {
+        let session = PersistedSession {
+            access_token: legacy.access_token,
+            refresh_token: legacy.refresh_token,
+            expires_at: legacy.expires_at,
+            user: legacy.user,
+        };
+        save_session_file(app, session.clone())?;
+        return Ok(Some(StoredSessionMetadata {
+            expires_at: session.expires_at,
+            user: session.user,
+        }));
+    }
+
     read_json_file(app, SESSION_FILE_NAME)
+}
+
+fn save_session_file(app: &AppHandle, session: PersistedSession) -> Result<(), String> {
+    let metadata = StoredSessionMetadata {
+        expires_at: session.expires_at,
+        user: session.user,
+    };
+    let secrets = SessionSecrets {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+    };
+
+    write_json_file(app, SESSION_FILE_NAME, &metadata)?;
+    write_keyring_json(SESSION_SECRET_ENTRY, &secrets)
+}
+
+fn load_session_secrets() -> Result<Option<SessionSecrets>, String> {
+    let Some(raw) = load_keyring_secret(SESSION_SECRET_ENTRY)? else {
+        return Ok(None);
+    };
+
+    serde_json::from_str::<SessionSecrets>(&raw)
+        .map(Some)
+        .map_err(|error| format!("Could not decode the stored session secrets: {error}"))
+}
+
+fn clear_session_state(app: &AppHandle) -> Result<(), String> {
+    let session_path = app_file_path(app, SESSION_FILE_NAME)?;
+    if session_path.exists() {
+        fs::remove_file(session_path).map_err(|error| error.to_string())?;
+    }
+    delete_keyring_secret(SESSION_SECRET_ENTRY)
 }
 
 fn load_config_from_env() -> Option<OAuthConfig> {
@@ -469,6 +709,49 @@ fn random_url_safe(length: usize) -> String {
 fn pkce_challenge(code_verifier: &str) -> String {
     let digest = Sha256::digest(code_verifier.as_bytes());
     URL_SAFE_NO_PAD.encode(digest)
+}
+
+fn http_client(timeout: Duration) -> Result<Client, String> {
+    Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|error| error.to_string())
+}
+
+fn keyring_entry(key: &str) -> Result<Entry, String> {
+    Entry::new(KEYRING_SERVICE, key)
+        .map_err(|error| format!("Could not prepare secure storage: {error}"))
+}
+
+fn load_keyring_secret(key: &str) -> Result<Option<String>, String> {
+    let entry = keyring_entry(key)?;
+    match entry.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => Err(format!("Could not read secure storage: {error}")),
+    }
+}
+
+fn write_keyring_secret(key: &str, value: &str) -> Result<(), String> {
+    keyring_entry(key)?
+        .set_password(value)
+        .map_err(|error| format!("Could not save secure storage entry: {error}"))
+}
+
+fn write_keyring_json<T>(key: &str, value: &T) -> Result<(), String>
+where
+    T: Serialize,
+{
+    let serialized = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    write_keyring_secret(key, &serialized)
+}
+
+fn delete_keyring_secret(key: &str) -> Result<(), String> {
+    let entry = keyring_entry(key)?;
+    match entry.delete_credential() {
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Could not clear secure storage entry: {error}")),
+    }
 }
 
 fn app_file_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
