@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.8 - 2026-03-19
+
+- Rebalanced the startup shell glass so it keeps the lighter translucent feel instead of slipping back into the flatter darker look
+- Wired the official SoundCloud-based Windows icon into the NSIS installer executable so the setup file and packaged app branding finally match
+- Kept the hidden-center-show launch behavior unchanged so the startup screen still opens centered
+
 ## v0.3.7 - 2026-03-19
 
 - Darkened the glass tint so bright windows behind the app stop bleaching the startup shell into a washed-out grey
