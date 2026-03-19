@@ -10,7 +10,7 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.2.0-F28C52)
+![Version](https://img.shields.io/badge/version-v0.2.1-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
@@ -47,7 +47,7 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 
 ## Features
 
-- Native-feeling Windows desktop shell with custom chrome and Tauri packaging
+- Native-feeling Windows desktop shell with standard Windows window controls and Tauri packaging
 - Required browser-based SoundCloud OAuth bootstrap before the app home unlocks
 - Personalized signed-in home built from your SoundCloud feed, liked tracks, playlists, and recent desktop plays
 - Secure local storage for tokens and app secrets via OS-backed keyring storage
@@ -98,7 +98,8 @@ npm run tauri dev
 npm run tauri build
 ```
 
-The Windows installer `.exe` is emitted under `src-tauri/target/release/bundle/nsis/`.
+Use the NSIS setup installer under `src-tauri/target/release/bundle/nsis/`.
+That setup `.exe` is the intended installable artifact. Installing a newer version upgrades the same `SoundunCloud` app instead of creating a separate installed copy.
 
 ## Usage
 

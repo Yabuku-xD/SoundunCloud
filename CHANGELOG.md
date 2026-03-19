@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 - 2026-03-19
+
+- Restored native Windows window decorations so drag, minimize, maximize, and close behave like a normal desktop app
+- Simplified distribution to the NSIS setup `.exe`, which upgrades the same installed SoundunCloud app instead of encouraging raw binary launches
+- Kept the personalized sign-in-gated home flow from `v0.2.0`
+
 ## v0.2.0 - 2026-03-19
 
 - Rebuilt the desktop flow around a required browser-based SoundCloud sign-in gate

@@ -4,19 +4,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowUpRight,
   AudioLines,
-  Disc3,
   Home,
   LoaderCircle,
   LockKeyhole,
-  Maximize2,
-  Minimize2,
   Pause,
   Play,
   Search,
   SkipBack,
   SkipForward,
   UserRound,
-  X,
 } from "lucide-react";
 import {
   type ChangeEvent,
@@ -85,7 +81,6 @@ function AppRoot() {
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
   const [authForm, setAuthForm] = useState<OAuthConfigInput>({
     clientId: "",
     clientSecret: "",
@@ -212,12 +207,6 @@ function AppRoot() {
           });
         }
       });
-
-    void windowHandle.isMaximized().then((value) => {
-      if (!cancelled) {
-        setIsMaximized(value);
-      }
-    });
 
     const unlistenSuccess = windowHandle.listen("sounduncloud://auth-success", () => {
       if (cancelled) {
@@ -397,19 +386,6 @@ function AppRoot() {
   const viewerName =
     home?.viewer.fullName || home?.viewer.username || "there";
 
-  const handleWindowMinimize = async () => {
-    await windowHandle.minimize();
-  };
-
-  const handleWindowMaximize = async () => {
-    await windowHandle.toggleMaximize();
-    setIsMaximized(await windowHandle.isMaximized());
-  };
-
-  const handleWindowClose = async () => {
-    await windowHandle.close();
-  };
-
   const handleAuthChange =
     (field: keyof OAuthConfigInput) =>
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -544,12 +520,7 @@ function AppRoot() {
 
   return (
     <div className="shell">
-      <WindowChrome
-        isMaximized={isMaximized}
-        onClose={handleWindowClose}
-        onMaximize={handleWindowMaximize}
-        onMinimize={handleWindowMinimize}
-      />
+      <WindowChrome />
 
       {feedback ? (
         <p
@@ -815,46 +786,21 @@ function AppRoot() {
   );
 }
 
-type WindowChromeProps = {
-  isMaximized: boolean;
-  onClose: () => void | Promise<void>;
-  onMaximize: () => void | Promise<void>;
-  onMinimize: () => void | Promise<void>;
-};
-
-function WindowChrome({
-  isMaximized,
-  onClose,
-  onMaximize,
-  onMinimize,
-}: WindowChromeProps) {
+function WindowChrome() {
   return (
     <header className="chrome panel">
-      <div className="chrome__brand" data-tauri-drag-region="true">
+      <div className="chrome__brand">
         <span className="chrome__mark">
-          <Disc3 size={16} />
+          <AudioLines size={16} />
         </span>
         <div>
           <strong>SoundunCloud</strong>
-          <small>Unofficial SoundCloud desktop</small>
+          <small>Install the setup .exe for normal Windows controls</small>
         </div>
       </div>
 
-      <div className="chrome__drag" data-tauri-drag-region="true">
-        Drag window
-      </div>
-
-      <div className="chrome__actions">
-        <button aria-label="Minimize window" className="chrome__button" onClick={onMinimize} type="button">
-          <Minimize2 size={14} />
-        </button>
-        <button aria-label="Maximize window" className="chrome__button" onClick={onMaximize} type="button">
-          <Maximize2 size={14} />
-          <span className="sr-only">{isMaximized ? "Restore" : "Maximize"}</span>
-        </button>
-        <button aria-label="Close window" className="chrome__button chrome__button--danger" onClick={onClose} type="button">
-          <X size={14} />
-        </button>
+      <div className="chrome__drag">
+        Native window controls enabled
       </div>
     </header>
   );
