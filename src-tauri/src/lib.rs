@@ -310,6 +310,60 @@ fn load_personalized_home(
 }
 
 #[tauri::command]
+fn main_window_start_dragging(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
+
+    window
+        .start_dragging()
+        .map_err(|error| format!("Could not start dragging the main window: {error}"))
+}
+
+#[tauri::command]
+fn main_window_minimize(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
+
+    window
+        .minimize()
+        .map_err(|error| format!("Could not minimize the main window: {error}"))
+}
+
+#[tauri::command]
+fn main_window_toggle_maximize(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
+
+    let is_maximized = window
+        .is_maximized()
+        .map_err(|error| format!("Could not read the maximize state of the main window: {error}"))?;
+
+    if is_maximized {
+        window
+            .unmaximize()
+            .map_err(|error| format!("Could not restore the main window: {error}"))
+    } else {
+        window
+            .maximize()
+            .map_err(|error| format!("Could not maximize the main window: {error}"))
+    }
+}
+
+#[tauri::command]
+fn main_window_close(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
+
+    window
+        .close()
+        .map_err(|error| format!("Could not close the main window: {error}"))
+}
+
+#[tauri::command]
 fn begin_soundcloud_login(
     app: AppHandle,
     runtime: State<SharedAuthRuntime>,
@@ -993,6 +1047,10 @@ pub fn run() {
             desktop_context,
             load_personalized_home,
             load_sounduncloud_snapshot,
+            main_window_close,
+            main_window_minimize,
+            main_window_start_dragging,
+            main_window_toggle_maximize,
             save_oauth_config
         ])
         .run(tauri::generate_context!())

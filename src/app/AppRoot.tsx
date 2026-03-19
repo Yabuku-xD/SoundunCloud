@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
@@ -45,7 +45,7 @@ import type {
   SoundunCloudSnapshot,
 } from "../types";
 
-const windowHandle = getCurrentWindow();
+const windowHandle = getCurrentWebviewWindow();
 
 const STORAGE_KEYS = {
   recentTrackUrns: "sounduncloud:recent-track-urns",
@@ -880,6 +880,18 @@ function SignedOutGate({
 }: SignedOutGateProps) {
   return (
     <main className="gate">
+      <button
+        aria-label="Drag window"
+        className="gate__drag-surface"
+        data-no-drag
+        data-tauri-drag-region
+        onMouseDown={(event) => {
+          event.stopPropagation();
+          void invoke("main_window_start_dragging");
+        }}
+        type="button"
+      />
+
       <section className="gate__stack" aria-label="Sign in to SoundunCloud">
         <img
           alt="SoundCloud"
@@ -926,20 +938,42 @@ function SignedOutGate({
 }
 
 function WindowControls() {
+  const handleDragMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    void invoke("main_window_start_dragging");
+  };
+
+  const handleMinimize = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void invoke("main_window_minimize");
+  };
+
+  const handleToggleMaximize = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void invoke("main_window_toggle_maximize");
+  };
+
+  const handleClose = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void invoke("main_window_close");
+  };
+
   return (
     <div className="window-frame">
-      <button
-        aria-label="Drag window"
+      <div
         className="window-frame__drag"
-        onMouseDown={() => void windowHandle.startDragging()}
-        type="button"
+        data-no-drag
+        data-tauri-drag-region
+        onMouseDown={handleDragMouseDown}
       />
 
-      <div className="window-frame__controls">
+      <div className="window-frame__controls" data-no-drag>
         <button
           aria-label="Minimize window"
           className="window-frame__button"
-          onClick={() => void windowHandle.minimize()}
+          data-no-drag
+          onClick={handleMinimize}
+          onMouseDown={(event) => event.stopPropagation()}
           type="button"
         >
           <Minus size={14} />
@@ -947,7 +981,9 @@ function WindowControls() {
         <button
           aria-label="Maximize or restore window"
           className="window-frame__button"
-          onClick={() => void windowHandle.toggleMaximize()}
+          data-no-drag
+          onClick={handleToggleMaximize}
+          onMouseDown={(event) => event.stopPropagation()}
           type="button"
         >
           <Square size={12} />
@@ -955,7 +991,9 @@ function WindowControls() {
         <button
           aria-label="Close window"
           className="window-frame__button window-frame__button--danger"
-          onClick={() => void windowHandle.close()}
+          data-no-drag
+          onClick={handleClose}
+          onMouseDown={(event) => event.stopPropagation()}
           type="button"
         >
           <X size={14} />

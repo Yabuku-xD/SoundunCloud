@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.9 - 2026-03-19
+
+- Restored working custom window controls on the frameless shell by routing drag, minimize, maximize, and close through native Tauri window commands for the real `main` window
+- Kept the startup shell in the darker glassmorphic direction instead of slipping back to the flatter older stage
+- Preserved the centered hidden-show startup behavior and existing SoundCloud app and installer icon packaging
+
 ## v0.3.8 - 2026-03-19
 
 - Rebalanced the startup shell glass so it keeps the lighter translucent feel instead of slipping back into the flatter darker look

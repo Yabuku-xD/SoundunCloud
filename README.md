@@ -10,7 +10,7 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.3.8-F28C52)
+![Version](https://img.shields.io/badge/version-v0.3.9-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)

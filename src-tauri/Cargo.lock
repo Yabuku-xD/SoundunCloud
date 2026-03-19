@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "sounduncloud-desktop"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "base64 0.22.1",
  "keyring",
