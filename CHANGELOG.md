@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.5 - 2026-03-19
+
+- Open the frameless window hidden, center it, then show it so startup lands in the middle of the active screen instead of creeping toward the top
+- Restored drag-anywhere behavior for the signed-out shell by treating non-interactive startup space as a drag surface
+- Reduced the chalky white overlay so the glass reads clearer and darker while still blurring the desktop behind it
+
 ## v0.3.4 - 2026-03-19
 
 - Switched the UI to a system monospace stack for a more technical, restrained shell

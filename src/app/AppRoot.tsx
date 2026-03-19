@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
+  type MouseEvent,
   useDeferredValue,
   useEffect,
   useEffectEvent,
@@ -108,6 +109,16 @@ function AppRoot() {
   const activeUrnRef = useRef<string | undefined>(selectedResource.urn);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+
+  const handleGatePointerDown = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+
+    if (target.closest("button, input, a, iframe, [data-no-drag]")) {
+      return;
+    }
+
+    void windowHandle.startDragging();
+  };
 
   const refreshSnapshot = useEffectEvent(async () => {
     try {
@@ -198,6 +209,7 @@ function AppRoot() {
   });
 
   useEffect(() => {
+    void windowHandle.center();
     void refreshSnapshot();
     void checkForUpdates();
 
@@ -560,7 +572,10 @@ function AppRoot() {
   const signedIn = snapshot.hasLocalSession;
 
   return (
-    <div className={`shell ${signedIn ? "shell--signed-in" : "shell--gate"}`}>
+    <div
+      className={`shell ${signedIn ? "shell--signed-in" : "shell--gate"}`}
+      onMouseDown={signedIn ? undefined : handleGatePointerDown}
+    >
       <WindowControls />
 
       {feedback ? (

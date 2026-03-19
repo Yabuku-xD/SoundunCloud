@@ -976,9 +976,13 @@ pub fn run() {
 
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
-                if apply_acrylic(&window, Some((12, 12, 14, 70))).is_err() {
-                    let _ = apply_blur(&window, Some((12, 12, 14, 110)));
+                let _ = window.center();
+
+                if apply_acrylic(&window, Some((8, 8, 10, 42))).is_err() {
+                    let _ = apply_blur(&window, Some((10, 10, 12, 96)));
                 }
+
+                let _ = window.show();
             }
 
             Ok(())
