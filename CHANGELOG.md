@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.2 - 2026-03-19
+
+- Removed the native Windows title bar again and replaced it with lightweight floating window controls so the centered startup stage stays visually clean
+- Stopped the signed-out startup from shifting by keeping status space stable and moving feedback overlays out of normal page flow
+- Made the updater check fail fast in the background instead of leaving a visible `Checking for updates...` line hanging on screen
+
 ## v0.3.1 - 2026-03-19
 
 - Fixed short-height window behavior so the left rail no longer forces a full-viewport column on small vertical space

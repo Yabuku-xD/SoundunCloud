@@ -8,12 +8,15 @@ import {
   AudioLines,
   Home,
   LoaderCircle,
+  Minus,
   Pause,
   Play,
   Search,
   SkipBack,
   SkipForward,
+  Square,
   UserRound,
+  X,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -84,7 +87,6 @@ function AppRoot() {
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
@@ -122,15 +124,16 @@ function AppRoot() {
   });
 
   const checkForUpdates = useEffectEvent(async () => {
-    setIsCheckingUpdates(true);
-
     try {
-      const update = await check();
+      const update = await Promise.race<AvailableUpdate | null>([
+        check({ timeout: 4000 }),
+        new Promise<null>((resolve) => {
+          window.setTimeout(() => resolve(null), 4500);
+        }),
+      ]);
       setAvailableUpdate(update ?? null);
     } catch {
       setAvailableUpdate(null);
-    } finally {
-      setIsCheckingUpdates(false);
     }
   });
 
@@ -556,7 +559,9 @@ function AppRoot() {
   const signedIn = snapshot.hasLocalSession;
 
   return (
-    <div className="shell">
+    <div className={`shell ${signedIn ? "shell--signed-in" : "shell--gate"}`}>
+      <WindowControls />
+
       {feedback ? (
         <p
           className={`feedback feedback--${feedback.tone}`}
@@ -571,7 +576,6 @@ function AppRoot() {
         <SignedOutGate
           canSignIn={snapshot.oauthConfigured}
           isAuthorizing={isAuthorizing}
-          isCheckingUpdates={isCheckingUpdates}
           isInstallingUpdate={isInstallingUpdate}
           onBeginLogin={handleBeginLogin}
           onInstallUpdate={handleInstallUpdate}
@@ -842,7 +846,6 @@ function AppRoot() {
 type SignedOutGateProps = {
   canSignIn: boolean;
   isAuthorizing: boolean;
-  isCheckingUpdates: boolean;
   isInstallingUpdate: boolean;
   onBeginLogin: () => void | Promise<void>;
   onInstallUpdate: () => void | Promise<void>;
@@ -853,7 +856,6 @@ type SignedOutGateProps = {
 function SignedOutGate({
   canSignIn,
   isAuthorizing,
-  isCheckingUpdates,
   isInstallingUpdate,
   onBeginLogin,
   onInstallUpdate,
@@ -898,13 +900,51 @@ function SignedOutGate({
                 : "Install update"}
             </button>
           </div>
-        ) : isCheckingUpdates ? (
-          <p className="gate__meta" aria-live="polite">
-            Checking for updates…
-          </p>
-        ) : null}
+        ) : (
+          <div aria-hidden="true" className="gate__status-slot" />
+        )}
       </section>
     </main>
+  );
+}
+
+function WindowControls() {
+  return (
+    <div className="window-frame">
+      <button
+        aria-label="Drag window"
+        className="window-frame__drag"
+        onMouseDown={() => void windowHandle.startDragging()}
+        type="button"
+      />
+
+      <div className="window-frame__controls">
+        <button
+          aria-label="Minimize window"
+          className="window-frame__button"
+          onClick={() => void windowHandle.minimize()}
+          type="button"
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          aria-label="Maximize or restore window"
+          className="window-frame__button"
+          onClick={() => void windowHandle.toggleMaximize()}
+          type="button"
+        >
+          <Square size={12} />
+        </button>
+        <button
+          aria-label="Close window"
+          className="window-frame__button window-frame__button--danger"
+          onClick={() => void windowHandle.close()}
+          type="button"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
 
