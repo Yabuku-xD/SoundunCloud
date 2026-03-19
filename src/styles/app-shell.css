@@ -1,11 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg: #050505;
-  --bg-elevated: rgba(12, 12, 14, 0.94);
-  --panel: rgba(18, 18, 20, 0.86);
-  --panel-strong: rgba(12, 12, 14, 0.96);
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.12);
+  --bg: transparent;
+  --bg-elevated: rgba(10, 10, 12, 0.52);
+  --glass-shell: rgba(6, 6, 8, 0.38);
+  --glass-shell-strong: rgba(10, 10, 12, 0.52);
+  --panel: rgba(20, 20, 22, 0.34);
+  --panel-strong: rgba(12, 12, 14, 0.48);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
   --text: #f7f3ed;
   --text-soft: rgba(247, 243, 237, 0.72);
   --text-faint: rgba(247, 243, 237, 0.44);
@@ -13,7 +15,7 @@
   --accent-strong: #ff7a00;
   --accent-ink: #1e1204;
   --danger: #ff6b6b;
-  --shadow: 0 32px 80px rgba(0, 0, 0, 0.38);
+  --shadow: 0 32px 92px rgba(0, 0, 0, 0.42);
   --radius-xl: 28px;
   --radius-lg: 22px;
   --radius-md: 16px;
@@ -23,10 +25,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background:
-    radial-gradient(circle at 50% 20%, rgba(255, 85, 0, 0.12), transparent 16%),
-    radial-gradient(circle at 72% 24%, rgba(255, 122, 0, 0.08), transparent 20%),
-    linear-gradient(180deg, #050505 0%, #080809 100%);
+  background: transparent;
   color: var(--text);
 }
 
@@ -70,17 +69,43 @@ input:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.012)),
     var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(24px) saturate(150%);
 }
 
 .shell {
+  position: relative;
+  isolation: isolate;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   padding: 18px;
+}
+
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: 14px;
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 85, 0, 0.12), transparent 20%),
+    radial-gradient(circle at 68% 24%, rgba(255, 122, 0, 0.06), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.012)),
+    var(--glass-shell);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 36px 110px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(34px) saturate(160%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 .shell--gate {
@@ -102,10 +127,11 @@ input:focus-visible {
 
 .window-frame__drag {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 168px;
-  height: 40px;
+  top: 10px;
+  left: 18px;
+  right: 186px;
+  height: 44px;
+  border-radius: 18px;
   pointer-events: auto;
   cursor: grab;
   opacity: 0;
@@ -117,6 +143,12 @@ input:focus-visible {
   right: 16px;
   display: flex;
   gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  background: rgba(10, 10, 12, 0.2);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(24px) saturate(155%);
   pointer-events: auto;
 }
 
@@ -128,9 +160,10 @@ input:focus-visible {
   height: 34px;
   border-radius: 12px;
   color: var(--text-soft);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
   cursor: pointer;
+  backdrop-filter: blur(20px) saturate(150%);
   transition:
     transform 140ms ease,
     background-color 140ms ease,
@@ -161,6 +194,7 @@ input:focus-visible {
   border: 1px solid var(--line);
   text-align: center;
   transform: translateX(-50%);
+  backdrop-filter: blur(22px) saturate(140%);
 }
 
 .feedback--success {
@@ -181,7 +215,7 @@ input:focus-visible {
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 24px 16px 16px;
+  padding: 28px 18px 18px;
 }
 
 .app-state {
@@ -215,13 +249,21 @@ input:focus-visible {
 .gate__stack {
   display: grid;
   justify-items: center;
-  width: min(100%, 420px);
-  gap: 12px;
+  width: min(100%, 520px);
+  gap: 14px;
   text-align: center;
-  padding: 48px 24px 32px;
+  padding: 50px 30px 34px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 32px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.012)),
+    rgba(8, 8, 10, 0.28);
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(165%);
 }
 
-.gate__stack h1,
 .content__header h1,
 .hero__copy h2,
 .hero__meta h3,
@@ -230,10 +272,11 @@ input:focus-visible {
   margin: 0;
 }
 
-.gate__stack h1 {
-  font-size: clamp(2rem, 3vw, 2.6rem);
-  font-weight: 700;
-  letter-spacing: -0.04em;
+.gate__logo {
+  width: min(100%, 320px);
+  height: auto;
+  object-fit: contain;
+  filter: brightness(1.04);
 }
 
 .gate__subtitle,
@@ -248,8 +291,11 @@ input:focus-visible {
 }
 
 .gate__subtitle {
-  margin: -2px 0 10px;
-  font-size: 0.95rem;
+  margin: 4px 0 10px;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .update-card {
@@ -261,7 +307,7 @@ input:focus-visible {
   border-radius: 20px;
   background:
     linear-gradient(180deg, rgba(255, 85, 0, 0.08), rgba(255, 255, 255, 0.01)),
-    var(--panel);
+    rgba(12, 12, 14, 0.22);
 }
 
 .gate__status-slot {
@@ -324,7 +370,7 @@ input:focus-visible {
 .media-card,
 .player-dock__progress {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .button--ghost {

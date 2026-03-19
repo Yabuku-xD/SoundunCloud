@@ -33,6 +33,7 @@ import {
   loadSoundCloudWidgetApi,
 } from "../lib/soundcloud";
 import { loadJson, saveJson } from "../lib/storage";
+import soundCloudLogoWhite from "../assets/soundcloud-logo-white.png";
 import type {
   AppFeedback,
   AuthLaunch,
@@ -865,11 +866,12 @@ function SignedOutGate({
   return (
     <main className="gate">
       <section className="gate__stack" aria-label="Sign in to SoundunCloud">
-        <div className="gate__mark">
-          <AudioLines size={18} />
-        </div>
-        <h1>SoundunCloud</h1>
-        <p className="gate__subtitle">Your music, your way</p>
+        <img
+          alt="SoundCloud"
+          className="gate__logo"
+          src={soundCloudLogoWhite}
+        />
+        <p className="gate__subtitle">Unofficial desktop companion</p>
 
         <button
           className="button button--primary button--gate"

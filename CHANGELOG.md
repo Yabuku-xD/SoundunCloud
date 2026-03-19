@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.3 - 2026-03-19
+
+- Added a glassmorphic frameless window shell with real Windows blur so the desktop app subtly reveals what is behind it instead of reading as a flat black slab
+- Replaced the temporary startup mark with SoundCloud's official white transparent horizontal logo from the SoundCloud media kit
+- Kept the minimal signed-out stage intact while making the floating window controls and gate surface match the new translucent look
+
 ## v0.3.2 - 2026-03-19
 
 - Removed the native Windows title bar again and replaced it with lightweight floating window controls so the centered startup stage stays visually clean

@@ -15,6 +15,8 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
+#[cfg(target_os = "windows")]
+use window_vibrancy::apply_blur;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
@@ -971,6 +973,11 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = apply_blur(&window, Some((7, 7, 9, 110)));
+            }
 
             Ok(())
         })
