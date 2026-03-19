@@ -10,12 +10,12 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.2.1-F28C52)
+![Version](https://img.shields.io/badge/version-v0.3.0-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
 
-SoundunCloud is a desktop-first SoundCloud client shell focused on fast startup, a minimal signed-in home, and a browser-driven sign-in flow that matches SoundCloud's current OAuth requirements. It is not affiliated with SoundCloud.
+SoundunCloud is a desktop-first SoundCloud client shell focused on fast startup, a minimal signed-in home, in-app updating, and a browser-driven sign-in flow that matches SoundCloud's current OAuth requirements. It is not affiliated with SoundCloud.
 
 ## Table of Contents
 
@@ -48,11 +48,12 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 ## Features
 
 - Native-feeling Windows desktop shell with standard Windows window controls and Tauri packaging
+- Minimal SoundCloud-style startup gate with a single browser-based sign-in action
 - Required browser-based SoundCloud OAuth bootstrap before the app home unlocks
 - Personalized signed-in home built from your SoundCloud feed, liked tracks, playlists, and recent desktop plays
 - Secure local storage for tokens and app secrets via OS-backed keyring storage
 - Embedded SoundCloud widget playback inside the app with a persistent desktop player dock
-- In-app OAuth configuration for `client_id`, `client_secret`, and redirect port
+- In-app updater support for installing new releases without rerunning loose binaries
 - Search handoff to SoundCloud's web search when you need results beyond the current home view
 
 ## Architecture
@@ -68,6 +69,7 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 │ • home search + player dock   │ • secure keyring token storage             │
 │ • SoundCloud widget iframe    │ • PKCE generation                          │
 │ • browser handoff             │ • token exchange + /me/feed lookup         │
+│ • in-app updater notice       │ • signed updater metadata + install flow   │
 ├───────────────────────────────┴────────────────────────────────────────────┤
 │ Browser OAuth                                                          │
 │ • opens SoundCloud authorize URL                                        │
@@ -99,33 +101,18 @@ npm run tauri build
 ```
 
 Use the NSIS setup installer under `src-tauri/target/release/bundle/nsis/`.
-That setup `.exe` is the intended installable artifact. Installing a newer version upgrades the same `SoundunCloud` app instead of creating a separate installed copy.
+That setup `.exe` is the intended installable artifact. Install it once, then let the app's built-in updater handle future releases when an update is available.
 
 ## Usage
 
 1. Launch the desktop app.
-2. Save your SoundCloud OAuth app credentials if they are not already configured.
-3. Register the same redirect URI in your SoundCloud app settings.
-4. Click `Sign in with SoundCloud` to complete browser-based OAuth.
-5. Return to the desktop app to see your personalized home feed.
+2. Click `Sign in with SoundCloud` to complete browser-based OAuth.
+3. Return to the desktop app to see your personalized home feed.
+4. When a new release is available, install it from the in-app update prompt.
 
 ## Configuration
 
-SoundunCloud supports two ways to provide OAuth credentials:
-
-### In-app configuration
-
-Use the sidebar form to save:
-
-- `client_id`
-- `client_secret`
-- `redirect_port`
-
-The client secret and session tokens are stored through secure local credential storage. Non-secret metadata stays in the app data directory for this desktop install.
-
-### Environment fallback
-
-You can also provide credentials through environment variables:
+SoundunCloud no longer exposes a developer-key form in the startup UI. For development or self-hosted builds, provide OAuth credentials through environment variables:
 
 ```bash
 SOUNDUNCLOUD_CLIENT_ID=your_client_id
@@ -133,7 +120,7 @@ SOUNDUNCLOUD_CLIENT_SECRET=your_client_secret
 SOUNDUNCLOUD_REDIRECT_PORT=8976
 ```
 
-An example file is included in [`.env.example`](./.env.example).
+An example file is included in [`.env.example`](./.env.example). Once credentials are available to the app, end users only see the minimal sign-in gate.
 
 ## OAuth Notes
 

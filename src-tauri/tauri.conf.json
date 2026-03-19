@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SoundunCloud",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "identifier": "com.yabuku.sounduncloud",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "nsis",
     "windows": {
       "nsis": {
@@ -42,5 +43,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk1MTE2NzY5RkQzOUM5QUEKUldTcXlUbjlhV2NSbGJBVDVFclAzVm9qWUxwTVVNdXQxUFF3cXBrK29SWGVwbmFackJ4UGphMHoK",
+      "endpoints": [
+        "https://github.com/Yabuku-xD/SoundunCloud/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

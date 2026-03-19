@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import {
   ArrowUpRight,
   AudioLines,
   Home,
   LoaderCircle,
-  LockKeyhole,
   Pause,
   Play,
   Search,
@@ -15,7 +16,6 @@ import {
   UserRound,
 } from "lucide-react";
 import {
-  type ChangeEvent,
   type FormEvent,
   useDeferredValue,
   useEffect,
@@ -33,7 +33,6 @@ import { loadJson, saveJson } from "../lib/storage";
 import type {
   AppFeedback,
   AuthLaunch,
-  OAuthConfigInput,
   PersonalizedHome,
   PlaybackSnapshot,
   SoundCloudPlaylist,
@@ -47,8 +46,14 @@ const STORAGE_KEYS = {
   recentTrackUrns: "sounduncloud:recent-track-urns",
 } as const;
 
+type AvailableUpdate = Exclude<Awaited<ReturnType<typeof check>>, null>;
 type ResourceKind = "track" | "playlist" | "profile";
 type ResourceSource = "feed" | "liked" | "recent" | "playlist" | "starter";
+
+type UpdateProgress = {
+  downloaded: number;
+  contentLength: number;
+};
 
 type HomeResource = {
   id: string;
@@ -75,17 +80,14 @@ function AppRoot() {
   const [home, setHome] = useState<PersonalizedHome | null>(null);
   const [query, setQuery] = useState("");
   const [feedback, setFeedback] = useState<AppFeedback | null>(null);
-  const [showSetup, setShowSetup] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [authForm, setAuthForm] = useState<OAuthConfigInput>({
-    clientId: "",
-    clientSecret: "",
-    redirectPort: 8976,
-  });
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
   const [playbackSnapshot, setPlaybackSnapshot] = useState<PlaybackSnapshot>(
     initialPlaybackSnapshot,
   );
@@ -110,18 +112,25 @@ function AppRoot() {
         "load_sounduncloud_snapshot",
       );
       setSnapshot(nextSnapshot);
-      setAuthForm((current) => ({
-        clientId: current.clientId || nextSnapshot.storedClientId || "",
-        clientSecret: current.clientSecret,
-        redirectPort:
-          current.redirectPort || extractPortFromRedirectUri(nextSnapshot.redirectUri),
-      }));
       if (!nextSnapshot.hasLocalSession) {
         setHome(null);
       }
     } catch {
       setSnapshot(null);
       setHome(null);
+    }
+  });
+
+  const checkForUpdates = useEffectEvent(async () => {
+    setIsCheckingUpdates(true);
+
+    try {
+      const update = await check();
+      setAvailableUpdate(update ?? null);
+    } catch {
+      setAvailableUpdate(null);
+    } finally {
+      setIsCheckingUpdates(false);
     }
   });
 
@@ -167,10 +176,7 @@ function AppRoot() {
       });
       setHome(nextHome);
 
-      if (
-        selectedResource.source === "starter" &&
-        nextHome.featuredTrack
-      ) {
+      if (selectedResource.source === "starter" && nextHome.featuredTrack) {
         setSelectedResource(trackToResource(nextHome.featuredTrack, "feed"));
       }
     } catch (error) {
@@ -189,6 +195,7 @@ function AppRoot() {
 
   useEffect(() => {
     void refreshSnapshot();
+    void checkForUpdates();
 
     let cancelled = false;
 
@@ -241,7 +248,7 @@ function AppRoot() {
       void unlistenSuccess.then((stop) => stop());
       void unlistenError.then((stop) => stop());
     };
-  }, [refreshSnapshot]);
+  }, [checkForUpdates, refreshSnapshot]);
 
   useEffect(() => {
     saveJson(STORAGE_KEYS.recentTrackUrns, recentTrackUrns);
@@ -386,44 +393,16 @@ function AppRoot() {
   const viewerName =
     home?.viewer.fullName || home?.viewer.username || "there";
 
-  const handleAuthChange =
-    (field: keyof OAuthConfigInput) =>
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const value =
-        field === "redirectPort" ? Number(event.target.value) || 8976 : event.target.value;
-
-      setAuthForm((current) => ({
-        ...current,
-        [field]: value,
-      }));
-    };
-
-  const handleSaveConfig = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsSavingConfig(true);
-
-    try {
-      await invoke("save_oauth_config", { input: authForm });
-      await refreshSnapshot();
-      setShowSetup(false);
-      setFeedback({
-        tone: "success",
-        message: "Developer keys saved. You can sign in with SoundCloud now.",
-      });
-    } catch (error) {
+  const handleBeginLogin = async () => {
+    if (!snapshot?.oauthConfigured) {
       setFeedback({
         tone: "error",
         message:
-          error instanceof Error
-            ? error.message
-            : "SoundunCloud could not save the SoundCloud app keys.",
+          "This install is missing SoundCloud OAuth credentials, so sign-in cannot start yet.",
       });
-    } finally {
-      setIsSavingConfig(false);
+      return;
     }
-  };
 
-  const handleBeginLogin = async () => {
     setIsAuthorizing(true);
 
     try {
@@ -442,6 +421,64 @@ function AppRoot() {
             ? error.message
             : "Could not start the SoundCloud sign-in flow.",
       });
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!availableUpdate) {
+      return;
+    }
+
+    setIsInstallingUpdate(true);
+    setUpdateProgress({
+      downloaded: 0,
+      contentLength: 0,
+    });
+
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+
+      await availableUpdate.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength ?? 0;
+            setUpdateProgress({
+              downloaded,
+              contentLength,
+            });
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            setUpdateProgress({
+              downloaded,
+              contentLength,
+            });
+            break;
+          case "Finished":
+            setUpdateProgress({
+              downloaded: contentLength || downloaded,
+              contentLength,
+            });
+            break;
+        }
+      });
+
+      setFeedback({
+        tone: "info",
+        message: "Update installed. Restarting SoundunCloud…",
+      });
+      await relaunch();
+    } catch (error) {
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "SoundunCloud could not install the update.",
+      });
+    } finally {
+      setIsInstallingUpdate(false);
     }
   };
 
@@ -520,8 +557,6 @@ function AppRoot() {
 
   return (
     <div className="shell">
-      <WindowChrome />
-
       {feedback ? (
         <p
           className={`feedback feedback--${feedback.tone}`}
@@ -534,16 +569,14 @@ function AppRoot() {
 
       {!signedIn ? (
         <SignedOutGate
-          authForm={authForm}
+          canSignIn={snapshot.oauthConfigured}
           isAuthorizing={isAuthorizing}
-          isSavingConfig={isSavingConfig}
-          onAuthChange={handleAuthChange}
+          isCheckingUpdates={isCheckingUpdates}
+          isInstallingUpdate={isInstallingUpdate}
           onBeginLogin={handleBeginLogin}
-          onSaveConfig={handleSaveConfig}
-          oauthConfigured={snapshot.oauthConfigured}
-          redirectUri={snapshot.redirectUri}
-          showSetup={showSetup}
-          onToggleSetup={() => setShowSetup((current) => !current)}
+          onInstallUpdate={handleInstallUpdate}
+          updateProgress={updateProgress}
+          updateVersion={availableUpdate?.version ?? null}
         />
       ) : (
         <main className="signed-in-shell">
@@ -601,19 +634,39 @@ function AppRoot() {
                 <h1>{buildGreeting(viewerName)}</h1>
               </div>
 
-              <form className="searchbar" onSubmit={handleSearchSubmit} role="search">
-                <Search size={18} />
-                <input
-                  ref={searchInputRef}
-                  aria-label="Search your home"
-                  placeholder="Search your feed, likes, recents, or jump to SoundCloud"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                <button className="searchbar__submit" type="submit">
-                  Open web
-                </button>
-              </form>
+              <div className="content__controls">
+                {availableUpdate ? (
+                  <button
+                    className="button button--ghost"
+                    disabled={isInstallingUpdate}
+                    onClick={() => void handleInstallUpdate()}
+                    type="button"
+                  >
+                    {isInstallingUpdate ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <AudioLines size={16} />
+                    )}
+                    {isInstallingUpdate
+                      ? buildInstallLabel(updateProgress)
+                      : `Install v${availableUpdate.version}`}
+                  </button>
+                ) : null}
+
+                <form className="searchbar" onSubmit={handleSearchSubmit} role="search">
+                  <Search size={18} />
+                  <input
+                    ref={searchInputRef}
+                    aria-label="Search your home"
+                    placeholder="Search your feed, likes, recents, or jump to SoundCloud"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                  <button className="searchbar__submit" type="submit">
+                    Open web
+                  </button>
+                </form>
+              </div>
             </header>
 
             <section className="hero panel">
@@ -786,102 +839,69 @@ function AppRoot() {
   );
 }
 
-function WindowChrome() {
-  return (
-    <header className="chrome panel">
-      <div className="chrome__brand">
-        <span className="chrome__mark">
-          <AudioLines size={16} />
-        </span>
-        <div>
-          <strong>SoundunCloud</strong>
-          <small>Install the setup .exe for normal Windows controls</small>
-        </div>
-      </div>
-
-      <div className="chrome__drag">
-        Native window controls enabled
-      </div>
-    </header>
-  );
-}
-
 type SignedOutGateProps = {
-  authForm: OAuthConfigInput;
+  canSignIn: boolean;
   isAuthorizing: boolean;
-  isSavingConfig: boolean;
-  oauthConfigured: boolean;
-  redirectUri: string;
-  showSetup: boolean;
-  onAuthChange: (field: keyof OAuthConfigInput) => (event: ChangeEvent<HTMLInputElement>) => void;
+  isCheckingUpdates: boolean;
+  isInstallingUpdate: boolean;
   onBeginLogin: () => void | Promise<void>;
-  onSaveConfig: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
-  onToggleSetup: () => void;
+  onInstallUpdate: () => void | Promise<void>;
+  updateProgress: UpdateProgress | null;
+  updateVersion: string | null;
 };
 
 function SignedOutGate({
-  authForm,
+  canSignIn,
   isAuthorizing,
-  isSavingConfig,
-  oauthConfigured,
-  redirectUri,
-  showSetup,
-  onAuthChange,
+  isCheckingUpdates,
+  isInstallingUpdate,
   onBeginLogin,
-  onSaveConfig,
-  onToggleSetup,
+  onInstallUpdate,
+  updateProgress,
+  updateVersion,
 }: SignedOutGateProps) {
   return (
     <main className="gate">
-      <section className="gate__card panel">
+      <section className="gate__stack" aria-label="Sign in to SoundunCloud">
         <div className="gate__mark">
-          <LockKeyhole size={20} />
+          <AudioLines size={18} />
         </div>
-        <p className="content__eyebrow">SoundCloud account required</p>
-        <h1>Sign in before using the desktop app.</h1>
-        <p>
-          SoundunCloud now opens into a minimal browser-based OAuth gate first. After sign-in,
-          the home screen is built from your own feed, likes, playlists, and recent listening.
-        </p>
+        <h1>SoundunCloud</h1>
+        <p className="gate__subtitle">Your music, your way</p>
 
         <button
-          className="button button--primary button--wide"
-          disabled={!oauthConfigured || isAuthorizing}
+          className="button button--primary button--gate"
+          disabled={!canSignIn || isAuthorizing}
           onClick={() => void onBeginLogin()}
           type="button"
         >
-          {isAuthorizing ? <LoaderCircle className="spin" size={16} /> : <AudioLines size={16} />}
-          {isAuthorizing ? "Waiting for browser sign-in" : "Sign in with SoundCloud"}
+          {isAuthorizing ? <LoaderCircle className="spin" size={16} /> : null}
+          {isAuthorizing ? "Waiting for SoundCloud" : "Sign in with SoundCloud"}
         </button>
 
-        <button className="button button--ghost button--wide" onClick={onToggleSetup} type="button">
-          {oauthConfigured ? "Edit developer keys" : "Set up developer keys"}
-        </button>
-
-        <div className="gate__hint">
-          <span>Redirect URI</span>
-          <code>{redirectUri}</code>
-        </div>
-
-        {showSetup || !oauthConfigured ? (
-          <form className="gate__form" onSubmit={(event) => void onSaveConfig(event)}>
-            <label>
-              <span>Client ID</span>
-              <input onChange={onAuthChange("clientId")} value={authForm.clientId} />
-            </label>
-            <label>
-              <span>Client secret</span>
-              <input onChange={onAuthChange("clientSecret")} type="password" value={authForm.clientSecret} />
-            </label>
-            <label>
-              <span>Redirect port</span>
-              <input min={1024} onChange={onAuthChange("redirectPort")} type="number" value={authForm.redirectPort} />
-            </label>
-            <button className="button button--primary button--wide" disabled={isSavingConfig} type="submit">
-              {isSavingConfig ? <LoaderCircle className="spin" size={16} /> : <LockKeyhole size={16} />}
-              {isSavingConfig ? "Saving keys" : "Save developer keys"}
+        {updateVersion ? (
+          <div className="update-card panel" aria-live="polite">
+            <span>Update v{updateVersion} is ready</span>
+            <button
+              className="button button--ghost"
+              disabled={isInstallingUpdate}
+              onClick={() => void onInstallUpdate()}
+              type="button"
+            >
+              {isInstallingUpdate ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <ArrowUpRight size={16} />
+              )}
+              {isInstallingUpdate
+                ? buildInstallLabel(updateProgress)
+                : "Install update"}
             </button>
-          </form>
+          </div>
+        ) : isCheckingUpdates ? (
+          <p className="gate__meta" aria-live="polite">
+            Checking for updates…
+          </p>
         ) : null}
       </section>
     </main>
@@ -1017,16 +1037,6 @@ function buildGreeting(name: string) {
   return `Good evening, ${name}`;
 }
 
-function extractPortFromRedirectUri(redirectUri: string) {
-  try {
-    return new URL(redirectUri).port
-      ? Number(new URL(redirectUri).port)
-      : 8976;
-  } catch {
-    return 8976;
-  }
-}
-
 function formatDuration(durationMs: number) {
   if (!durationMs) {
     return "0:00";
@@ -1047,4 +1057,13 @@ function formatCompact(value: number) {
 
 function upgradeArtwork(url: string) {
   return url.replace("-large.", "-t500x500.");
+}
+
+function buildInstallLabel(progress: UpdateProgress | null) {
+  if (!progress || progress.contentLength <= 0) {
+    return "Installing update…";
+  }
+
+  const ratio = Math.min(progress.downloaded / progress.contentLength, 1);
+  return `Installing ${Math.round(ratio * 100)}%`;
 }

@@ -327,8 +327,12 @@ fn begin_soundcloud_login(
     }
 
     let redirect_uri = build_redirect_uri(config.redirect_port);
-    let listener = TcpListener::bind(("127.0.0.1", config.redirect_port))
-        .map_err(|_| format!("Port {} is unavailable for the OAuth callback.", config.redirect_port))?;
+    let listener = TcpListener::bind(("127.0.0.1", config.redirect_port)).map_err(|_| {
+        format!(
+            "Port {} is unavailable for the OAuth callback.",
+            config.redirect_port
+        )
+    })?;
     listener
         .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
@@ -535,8 +539,13 @@ fn refresh_token(
         .map_err(|error| format!("Could not decode the refreshed SoundCloud token: {error}"))
 }
 
-fn fetch_tracks(client: &Client, access_token: &str, path: &str) -> Result<Vec<SoundCloudTrack>, String> {
-    authorized_get_json::<ApiCollection<SoundCloudTrack>>(client, access_token, path).map(ApiCollection::into_vec)
+fn fetch_tracks(
+    client: &Client,
+    access_token: &str,
+    path: &str,
+) -> Result<Vec<SoundCloudTrack>, String> {
+    authorized_get_json::<ApiCollection<SoundCloudTrack>>(client, access_token, path)
+        .map(ApiCollection::into_vec)
 }
 
 fn fetch_playlists(
@@ -568,7 +577,11 @@ fn fetch_recent_tracks(
     let mut resolved = fetch_tracks(
         client,
         access_token,
-        &format!("/tracks?urns={}&limit={}", urlencoding::encode(&query), recent_track_urns.len()),
+        &format!(
+            "/tracks?urns={}&limit={}",
+            urlencoding::encode(&query),
+            recent_track_urns.len()
+        ),
     )?;
 
     resolved.sort_by_key(|track| {
@@ -581,9 +594,13 @@ fn fetch_recent_tracks(
     Ok(resolved)
 }
 
-fn fetch_authenticated_user(client: &Client, access_token: &str) -> Result<AuthenticatedUser, String> {
-    let me = authorized_get_json::<MeResponse>(client, access_token, "/me")
-        .map_err(|error| format!("Could not parse the authenticated SoundCloud profile: {error}"))?;
+fn fetch_authenticated_user(
+    client: &Client,
+    access_token: &str,
+) -> Result<AuthenticatedUser, String> {
+    let me = authorized_get_json::<MeResponse>(client, access_token, "/me").map_err(|error| {
+        format!("Could not parse the authenticated SoundCloud profile: {error}")
+    })?;
 
     Ok(AuthenticatedUser {
         username: me.username,
@@ -949,6 +966,14 @@ where
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            Ok(())
+        })
         .manage(Arc::new(Mutex::new(AuthRuntime::default())))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![

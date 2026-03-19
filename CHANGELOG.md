@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.0 - 2026-03-19
+
+- Added Tauri updater support so the installed desktop app can detect and install new releases in-app
+- Simplified the signed-out startup screen into a single SoundCloud-style sign-in surface with SoundCloud orange accents
+- Removed the extra in-app native-controls banner and the exposed developer-key setup form from the startup experience
+- Added release tooling for GitHub-hosted `latest.json` updater metadata
+
 ## v0.2.1 - 2026-03-19
 
 - Restored native Windows window decorations so drag, minimize, maximize, and close behave like a normal desktop app
