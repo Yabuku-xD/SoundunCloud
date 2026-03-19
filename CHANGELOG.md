@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.6 - 2026-03-19
+
+- Removed the inner full-window outline from the startup shell so the glass surface feels cleaner
+- Dropped the centered sign-in card box styling while keeping the startup content in the same centered position
+- Preserved the hidden-center-show startup behavior and drag-anywhere signed-out shell from `v0.3.5`
+
 ## v0.3.5 - 2026-03-19
 
 - Open the frameless window hidden, center it, then show it so startup lands in the middle of the active screen instead of creeping toward the top
