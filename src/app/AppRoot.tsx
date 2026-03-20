@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
 import {
   ArrowUpRight,
@@ -55,10 +54,14 @@ type AvailableUpdate = Exclude<Awaited<ReturnType<typeof check>>, null>;
 type ResourceKind = "track" | "playlist" | "profile";
 type ResourceSource = "feed" | "liked" | "recent" | "playlist" | "starter";
 
-type UpdateProgress = {
-  downloaded: number;
-  contentLength: number;
-};
+type UpdateFabState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "ready"; version: string }
+  | { kind: "installing"; version: string }
+  | { kind: "manual"; version: string; url: string; detail?: string }
+  | { kind: "current" }
+  | { kind: "error"; detail?: string };
 
 type HomeResource = {
   id: string;
@@ -89,10 +92,10 @@ function AppRoot() {
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
-  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
+  const [updateFabState, setUpdateFabState] = useState<UpdateFabState>({
+    kind: "idle",
+  });
   const [playbackSnapshot, setPlaybackSnapshot] = useState<PlaybackSnapshot>(
     initialPlaybackSnapshot,
   );
@@ -110,6 +113,8 @@ function AppRoot() {
   const activeUrnRef = useRef<string | undefined>(selectedResource.urn);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const isCheckingUpdates = updateFabState.kind === "checking";
+  const isInstallingUpdate = updateFabState.kind === "installing";
 
   const handleShellPointerDown = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -137,7 +142,8 @@ function AppRoot() {
   });
 
   const checkForUpdates = useEffectEvent(async () => {
-    setIsCheckingUpdates(true);
+    setAvailableUpdate(null);
+    setUpdateFabState({ kind: "checking" });
 
     try {
       const update = await Promise.race<AvailableUpdate | null>([
@@ -146,21 +152,25 @@ function AppRoot() {
           window.setTimeout(() => resolve(null), 4500);
         }),
       ]);
-      setAvailableUpdate(update ?? null);
-      setFeedback({
-        tone: "info",
-        message: update
-          ? `Update v${update.version} is ready to install.`
-          : "SoundunCloud is up to date.",
-      });
-    } catch {
+      if (update) {
+        setAvailableUpdate(update);
+        setUpdateFabState({
+          kind: "ready",
+          version: update.version,
+        });
+        return;
+      }
+
+      setUpdateFabState({ kind: "current" });
+    } catch (error) {
       setAvailableUpdate(null);
-      setFeedback({
-        tone: "error",
-        message: "SoundunCloud could not check for updates right now.",
+      setUpdateFabState({
+        kind: "error",
+        detail: formatUnknownError(
+          error,
+          "SoundunCloud could not check for updates right now.",
+        ),
       });
-    } finally {
-      setIsCheckingUpdates(false);
     }
   });
 
@@ -291,6 +301,20 @@ function AppRoot() {
 
     void refreshHome();
   }, [recentTrackUrns, refreshHome, snapshot?.hasLocalSession]);
+
+  useEffect(() => {
+    if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setUpdateFabState((current) =>
+        current.kind === updateFabState.kind ? { kind: "idle" } : current,
+      );
+    }, 2400);
+
+    return () => window.clearTimeout(timer);
+  }, [updateFabState]);
 
   useEffect(() => {
     if (!isWidgetApiReady || !iframeRef.current || widgetRef.current) {
@@ -459,61 +483,48 @@ function AppRoot() {
       return;
     }
 
-    setIsInstallingUpdate(true);
-    setUpdateProgress({
-      downloaded: 0,
-      contentLength: 0,
+    setUpdateFabState({
+      kind: "installing",
+      version: availableUpdate.version,
     });
 
     try {
-      let downloaded = 0;
-      let contentLength = 0;
-
-      await availableUpdate.downloadAndInstall((event) => {
-        switch (event.event) {
-          case "Started":
-            contentLength = event.data.contentLength ?? 0;
-            setUpdateProgress({
-              downloaded,
-              contentLength,
-            });
-            break;
-          case "Progress":
-            downloaded += event.data.chunkLength;
-            setUpdateProgress({
-              downloaded,
-              contentLength,
-            });
-            break;
-          case "Finished":
-            setUpdateProgress({
-              downloaded: contentLength || downloaded,
-              contentLength,
-            });
-            break;
-        }
+      await availableUpdate.downloadAndInstall(undefined, {
+        timeout: 180000,
       });
-
-      setFeedback({
-        tone: "info",
-        message: "Update installed. Restarting SoundunCloud…",
-      });
-      await relaunch();
+      setAvailableUpdate(null);
+      setUpdateFabState({ kind: "current" });
     } catch (error) {
-      setFeedback({
-        tone: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "SoundunCloud could not install the update.",
+      const detail = formatUnknownError(
+        error,
+        "SoundunCloud could not install the update automatically.",
+      );
+      const installerUrl = getInstallerUrl(availableUpdate);
+
+      if (installerUrl) {
+        setUpdateFabState({
+          kind: "manual",
+          version: availableUpdate.version,
+          url: installerUrl,
+          detail,
+        });
+        return;
+      }
+
+      setUpdateFabState({
+        kind: "error",
+        detail,
       });
-    } finally {
-      setIsInstallingUpdate(false);
     }
   };
 
   const handleUpdateAction = async () => {
     if (isCheckingUpdates || isInstallingUpdate) {
+      return;
+    }
+
+    if (updateFabState.kind === "manual") {
+      await openUrl(updateFabState.url);
       return;
     }
 
@@ -597,6 +608,16 @@ function AppRoot() {
   }
 
   const signedIn = snapshot.hasLocalSession;
+  const updateFabLabel = buildUpdateFabLabel(updateFabState);
+  const updateFabTitle = buildUpdateFabTitle(updateFabState);
+  const updateFabToneClass =
+    updateFabState.kind === "ready" || updateFabState.kind === "manual"
+      ? "update-fab--ready"
+      : updateFabState.kind === "error"
+        ? "update-fab--error"
+        : updateFabState.kind === "current"
+          ? "update-fab--quiet"
+          : "";
 
   return (
     <div
@@ -863,12 +884,11 @@ function AppRoot() {
 
       <button
         aria-live="polite"
-        className={`update-fab ${signedIn ? "update-fab--signed-in" : ""} ${
-          availableUpdate ? "update-fab--ready" : ""
-        }`}
+        className={`update-fab ${signedIn ? "update-fab--signed-in" : ""} ${updateFabToneClass}`}
         data-no-drag
         disabled={isCheckingUpdates || isInstallingUpdate}
         onClick={() => void handleUpdateAction()}
+        title={updateFabTitle}
         type="button"
       >
         {isCheckingUpdates || isInstallingUpdate ? (
@@ -876,15 +896,7 @@ function AppRoot() {
         ) : (
           <ArrowUpRight size={11} />
         )}
-        <span>
-          {isInstallingUpdate
-            ? buildInstallLabel(updateProgress)
-            : availableUpdate
-              ? `Install v${availableUpdate.version}`
-              : isCheckingUpdates
-                ? "Checking updates..."
-                : "Check for updates"}
-        </span>
+        <span>{updateFabLabel}</span>
       </button>
     </div>
   );
@@ -1130,11 +1142,83 @@ function upgradeArtwork(url: string) {
   return url.replace("-large.", "-t500x500.");
 }
 
-function buildInstallLabel(progress: UpdateProgress | null) {
-  if (!progress || progress.contentLength <= 0) {
-    return "Installing update…";
+function getInstallerUrl(update: AvailableUpdate) {
+  const platforms = update.rawJson.platforms;
+
+  if (!platforms || typeof platforms !== "object") {
+    return null;
   }
 
-  const ratio = Math.min(progress.downloaded / progress.contentLength, 1);
-  return `Installing ${Math.round(ratio * 100)}%`;
+  for (const key of ["windows-x86_64", "windows-aarch64", "windows-i686"]) {
+    const candidate = (platforms as Record<string, unknown>)[key];
+
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      "url" in candidate &&
+      typeof (candidate as { url?: unknown }).url === "string"
+    ) {
+      return (candidate as { url: string }).url;
+    }
+  }
+
+  return null;
+}
+
+function formatUnknownError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string" &&
+    error.message.trim()
+  ) {
+    return error.message.trim();
+  }
+
+  return fallback;
+}
+
+function buildUpdateFabLabel(state: UpdateFabState) {
+  switch (state.kind) {
+    case "checking":
+      return "Checking…";
+    case "ready":
+      return "Update available";
+    case "installing":
+      return "Installing…";
+    case "manual":
+      return "Download setup";
+    case "current":
+      return "Up to date";
+    case "error":
+      return "Try again";
+    default:
+      return "Check for updates";
+  }
+}
+
+function buildUpdateFabTitle(state: UpdateFabState) {
+  switch (state.kind) {
+    case "ready":
+      return `SoundunCloud v${state.version} is ready to install.`;
+    case "installing":
+      return `Installing SoundunCloud v${state.version}.`;
+    case "manual":
+      return `${state.detail ?? "Automatic install failed."} Use the setup installer instead.`;
+    case "current":
+      return "SoundunCloud is already up to date.";
+    case "error":
+      return state.detail ?? "SoundunCloud could not check for updates.";
+    default:
+      return "Check for updates";
+  }
 }

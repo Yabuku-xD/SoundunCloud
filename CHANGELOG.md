@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.11 - 2026-03-19
+
+- Kept updater states inside the same bottom-right control, so `Check for updates`, `Update available`, and fallback download actions now live in one seamless place
+- Removed the noisy updater toast and install-progress churn that made the signed-out startup gate flicker during failed update attempts
+- Added a manual setup-download fallback in the same updater control when automatic install cannot complete
+
 ## v0.3.10 - 2026-03-19
 
 - Removed the visible drag strip and kept frameless movement working through an invisible drag surface instead of the old top bar

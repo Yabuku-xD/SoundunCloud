@@ -255,6 +255,9 @@ input:focus-visible {
   box-shadow: none;
   backdrop-filter: none;
   z-index: 1;
+  contain: paint;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .content__header h1,
@@ -713,6 +716,19 @@ input:focus-visible {
   border-color: rgba(255, 122, 0, 0.32);
   background:
     linear-gradient(180deg, rgba(255, 85, 0, 0.16), rgba(255, 122, 0, 0.06)),
+    rgba(10, 10, 12, 0.58);
+}
+
+.update-fab--quiet {
+  color: var(--text-soft);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(8, 8, 10, 0.5);
+}
+
+.update-fab--error {
+  border-color: rgba(255, 107, 107, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 107, 107, 0.12), rgba(255, 107, 107, 0.04)),
     rgba(10, 10, 12, 0.58);
 }
 
