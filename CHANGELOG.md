@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.0 - 2026-03-20
+
+- Rebuilt the desktop UI with a stronger editorial shell inspired by modern high-end interface direction instead of the flatter generic dark dashboard look
+- Added a new login experience, titlebar, sidebar, home layout, and now-playing treatment so the app feels like a native client instead of a wrapped site
+- Improved perceived load speed by introducing smarter image loading, route-level code splitting, and a real shared image component across high-traffic views
+- Removed duplicate audio downloads on first play by letting the native loader write directly into cache for uncached tracks
+
 ## v0.7.0 - 2026-03-20
 
 - Replaced the broken embedded SoundCloud website shell with a transplanted native desktop-client frontend based on the upstream custom app architecture

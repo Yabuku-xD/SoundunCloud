@@ -1,6 +1,6 @@
 [package]
 name = "sounduncloud-desktop"
-version = "0.7.0"
+version = "0.8.0"
 description = "SoundunCloud is a native desktop client for SoundCloud"
 authors = ["Yabuku"]
 edition = "2021"
