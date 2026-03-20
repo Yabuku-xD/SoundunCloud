@@ -111,6 +111,16 @@ function AppRoot() {
     ]);
   }, [experienceMode]);
 
+  const scheduleShellBoundsSync = useCallback(() => {
+    const delays = [0, 80, 180, 360];
+
+    for (const delay of delays) {
+      window.setTimeout(() => {
+        void syncShellWebviewBounds();
+      }, delay);
+    }
+  }, [syncShellWebviewBounds]);
+
   const ensureShellWebview = useCallback(
     async (target?: string) => {
       setShellPhase("launching");
@@ -128,6 +138,7 @@ function AppRoot() {
           await existing.show();
           await existing.setFocus();
           setShellPhase("ready");
+          scheduleShellBoundsSync();
           return;
         }
 
@@ -144,6 +155,7 @@ function AppRoot() {
         await shellWebview.show();
         await shellWebview.setFocus();
         setShellPhase("ready");
+        scheduleShellBoundsSync();
       } catch (error) {
         setShellPhase("error");
         setShellError(
@@ -154,7 +166,7 @@ function AppRoot() {
         );
       }
     },
-    [shellView, syncShellWebviewBounds],
+    [scheduleShellBoundsSync, shellView, syncShellWebviewBounds],
   );
 
   const closeShellWebview = useCallback(async () => {
@@ -445,21 +457,29 @@ function AppRoot() {
       return;
     }
 
+    const timers = [0, 80, 180, 360].map((delay) =>
+      window.setTimeout(() => {
+        void syncShellWebviewBounds();
+      }, delay),
+    );
+
     const viewport = shellViewportRef.current;
     if (!viewport || typeof ResizeObserver === "undefined") {
-      void syncShellWebviewBounds();
-      return;
+      return () => {
+        timers.forEach((timer) => window.clearTimeout(timer));
+      };
     }
-
-    void syncShellWebviewBounds();
 
     const observer = new ResizeObserver(() => {
       void syncShellWebviewBounds();
     });
     observer.observe(viewport);
 
-    return () => observer.disconnect();
-  }, [experienceMode, syncShellWebviewBounds]);
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      observer.disconnect();
+    };
+  }, [experienceMode, shellPhase, syncShellWebviewBounds]);
 
   useEffect(() => {
     if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {

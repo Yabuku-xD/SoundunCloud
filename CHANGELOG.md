@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.2 - 2026-03-20
+
+- Fixed the hybrid shell timing bug that left the embedded SoundCloud webview stuck in the fallback full-window position instead of snapping into the custom shell viewport
+
 ## v0.6.1 - 2026-03-20
 
 - Replaced the hidden auth-gated fallback with a visible hybrid native shell that wraps the logged-in SoundCloud site inside SoundunCloud's own sidebar and header
