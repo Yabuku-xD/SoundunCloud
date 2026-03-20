@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0 - 2026-03-20
+
+- Replaced the broken embedded SoundCloud website shell with a transplanted native desktop-client frontend based on the upstream custom app architecture
+- Added the real custom desktop shell with sidebar, routing, home, library, search, settings, queue, lyrics, and now-playing surfaces
+- Swapped in the upstream native audio, tray, proxy, cache, and media-controls backend while keeping SoundunCloud branding and updater packaging
+
 ## v0.6.2 - 2026-03-20
 
 - Fixed the hybrid shell timing bug that left the embedded SoundCloud webview stuck in the fallback full-window position instead of snapping into the custom shell viewport

@@ -1,861 +1,124 @@
-mod auth_backend;
-
-use auth_backend::DESKTOP_CALLBACK_URL;
-use keyring::{Entry, Error as KeyringError};
-use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-use tauri::{
-    webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
-    AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WebviewWindowBuilder,
-};
-use tauri_plugin_deep_link::DeepLinkExt;
-use url::Url;
-
-const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
-const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
-const PENDING_AUTH_FILE_NAME: &str = "sounduncloud-pending-auth.json";
-const AUTH_EVENT_SUCCESS: &str = "sounduncloud://auth-success";
-const AUTH_EVENT_ERROR: &str = "sounduncloud://auth-error";
-const KEYRING_SERVICE: &str = "com.yabuku.sounduncloud";
-const SESSION_SECRET_ENTRY: &str = "oauth-session";
-const REFRESH_GRACE_SECONDS: u64 = 45;
-const SOUNDCLOUD_WEBVIEW_LABEL: &str = "soundcloud-shell";
-const SOUNDCLOUD_POPUP_LABEL_PREFIX: &str = "soundcloud-popup";
-const SOUNDCLOUD_BASE_URL: &str = "https://soundcloud.com";
-const SOUNDCLOUD_HOME_URL: &str = "https://soundcloud.com/stream";
-const SHELL_PADDING: f64 = 18.0;
-const SHELL_TOP_INSET: f64 = 78.0;
-const SHELL_BOTTOM_INSET: f64 = 82.0;
-const MIN_WEBVIEW_HEIGHT: f64 = 420.0;
-const MIN_WEBVIEW_WIDTH: f64 = 720.0;
-const SOUNDCLOUD_SHELL_PATCH_SCRIPT: &str = r####"
-(() => {
-  const STYLE_ID = "sounduncloud-shell-style";
-  const STYLE_TEXT = `
-    html, body, #app {
-      background: #0b0c10 !important;
-    }
-    .header,
-    .announcements,
-    .l-product-banners,
-    .mobileAppsBanner,
-    .mobileTeaser,
-    .l-footer {
-      display: none !important;
-    }
-    #content,
-    .l-content,
-    .l-main,
-    .l-inner,
-    .l-container,
-    .l-fullwidth,
-    .l-two-column,
-    .l-one-column {
-      max-width: none !important;
-      width: 100% !important;
-      margin-top: 0 !important;
-      padding-top: 0 !important;
-    }
-    .playControls {
-      background: rgba(9, 10, 14, 0.96) !important;
-      border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-    }
-  `;
-
-  const apply = () => {
-    const head = document.head || document.documentElement;
-    if (!head) {
-      return;
-    }
-
-    let style = document.getElementById(STYLE_ID);
-    if (!style) {
-      style = document.createElement("style");
-      style.id = STYLE_ID;
-      head.appendChild(style);
-    }
-
-    if (style.textContent !== STYLE_TEXT) {
-      style.textContent = STYLE_TEXT;
-    }
-
-    document.documentElement.style.background = "#0b0c10";
-    if (document.body) {
-      document.body.style.background = "#0b0c10";
-    }
-  };
-
-  apply();
-
-  if (!window.__sounduncloudShellPatched) {
-    window.__sounduncloudShellPatched = true;
-    const observer = new MutationObserver(() => apply());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-
-    const resync = () => window.setTimeout(apply, 0);
-    for (const key of ["pushState", "replaceState"]) {
-      const original = history[key];
-      if (typeof original !== "function") {
-        continue;
-      }
-
-      history[key] = function (...args) {
-        const result = original.apply(this, args);
-        resync();
-        return result;
-      };
-    }
-
-    window.addEventListener("popstate", resync);
-  }
-})();
-"####;
-
-static POPUP_COUNTER: AtomicU32 = AtomicU32::new(1);
-
-#[derive(Clone, Default)]
-struct AuthRuntime {
-    is_authorizing: bool,
-}
-
-type SharedAuthRuntime = Arc<Mutex<AuthRuntime>>;
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DesktopContext {
-    app_name: String,
-    version: String,
-    platform_label: String,
-    arch: String,
-    build_profile: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyOAuthConfig {
-    client_id: String,
-    client_secret: String,
-    redirect_port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthenticatedUser {
-    username: String,
-    full_name: Option<String>,
-    permalink_url: Option<String>,
-    avatar_url: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct PersistedSession {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_at: u64,
-    user: AuthenticatedUser,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StoredSessionMetadata {
-    expires_at: u64,
-    user: AuthenticatedUser,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionSecrets {
-    access_token: String,
-    refresh_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyPersistedSession {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_at: u64,
-    user: AuthenticatedUser,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SoundunCloudSnapshot {
-    desktop_context: DesktopContext,
-    oauth_configured: bool,
-    redirect_uri: String,
-    has_local_session: bool,
-    authenticated_user: Option<AuthenticatedUser>,
-    config_source: String,
-    auth_base_url: Option<String>,
-    uses_secure_storage: bool,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthLaunch {
-    authorize_url: String,
-    redirect_uri: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SoundCloudTrackUser {
-    username: String,
-    full_name: Option<String>,
-    permalink_url: Option<String>,
-    avatar_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SoundCloudTrack {
-    urn: String,
-    title: String,
-    permalink_url: String,
-    artwork_url: Option<String>,
-    #[serde(default)]
-    duration: u64,
-    #[serde(default)]
-    playback_count: u64,
-    #[serde(default)]
-    user_playback_count: u64,
-    #[serde(default)]
-    access: Option<String>,
-    user: Option<SoundCloudTrackUser>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SoundCloudPlaylist {
-    urn: String,
-    title: String,
-    permalink_url: String,
-    artwork_url: Option<String>,
-    #[serde(default)]
-    track_count: u64,
-    user: Option<SoundCloudTrackUser>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ApiCollection<T> {
-    Wrapped { collection: Vec<T> },
-    Plain(Vec<T>),
-}
-
-impl<T> ApiCollection<T> {
-    fn into_vec(self) -> Vec<T> {
-        match self {
-            Self::Wrapped { collection } => collection,
-            Self::Plain(values) => values,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PersonalizedHome {
-    viewer: AuthenticatedUser,
-    featured_track: Option<SoundCloudTrack>,
-    feed_tracks: Vec<SoundCloudTrack>,
-    liked_tracks: Vec<SoundCloudTrack>,
-    recent_tracks: Vec<SoundCloudTrack>,
-    playlists: Vec<SoundCloudPlaylist>,
-}
-
-#[tauri::command]
-fn desktop_context(app: AppHandle) -> DesktopContext {
-    build_desktop_context(&app)
-}
-
-#[tauri::command]
-fn load_sounduncloud_snapshot(app: AppHandle) -> Result<SoundunCloudSnapshot, String> {
-    let desktop_context = build_desktop_context(&app);
-    let config_resolution = auth_backend::load_effective_config(&app)?;
-    let session = auth_backend::load_session_file(&app, config_resolution.config.as_ref())?;
-
-    Ok(SoundunCloudSnapshot {
-        desktop_context,
-        oauth_configured: config_resolution.config.is_some(),
-        redirect_uri: DESKTOP_CALLBACK_URL.into(),
-        has_local_session: session.is_some(),
-        authenticated_user: session.map(|stored| stored.user),
-        config_source: config_resolution.config_source,
-        auth_base_url: config_resolution.auth_base_url,
-        uses_secure_storage: true,
-    })
-}
-
-#[tauri::command]
-fn clear_local_session(app: AppHandle) -> Result<(), String> {
-    clear_session_state(&app)
-}
-
-#[tauri::command]
-fn load_personalized_home(
-    app: AppHandle,
-    recent_track_urns: Vec<String>,
-) -> Result<PersonalizedHome, String> {
-    let config_resolution = auth_backend::load_effective_config(&app)?;
-    let session = auth_backend::load_session_file(&app, config_resolution.config.as_ref())?
-        .ok_or_else(|| "Sign in with SoundCloud before using the desktop app.".to_string())?;
-    let client = http_client(Duration::from_secs(20))?;
-
-    let feed_tracks = fetch_tracks(
-        &client,
-        &session.access_token,
-        "/me/feed/tracks?limit=12&linked_partitioning=true",
-    )?;
-    let liked_tracks = fetch_tracks(
-        &client,
-        &session.access_token,
-        "/me/likes/tracks?limit=12&linked_partitioning=true",
-    )?;
-    let playlists = fetch_playlists(
-        &client,
-        &session.access_token,
-        "/me/playlists?show_tracks=false&limit=8&linked_partitioning=true",
-    )?;
-    let recent_tracks = fetch_recent_tracks(&client, &session.access_token, &recent_track_urns)?;
-
-    Ok(PersonalizedHome {
-        viewer: session.user,
-        featured_track: feed_tracks
-            .first()
-            .cloned()
-            .or_else(|| liked_tracks.first().cloned())
-            .or_else(|| recent_tracks.first().cloned()),
-        feed_tracks,
-        liked_tracks,
-        recent_tracks,
-        playlists,
-    })
-}
-
-#[tauri::command]
-fn main_window_start_dragging(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
-
-    window
-        .start_dragging()
-        .map_err(|error| format!("Could not start dragging the main window: {error}"))
-}
-
-#[tauri::command]
-fn main_window_minimize(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
-
-    window
-        .minimize()
-        .map_err(|error| format!("Could not minimize the main window: {error}"))
-}
-
-#[tauri::command]
-fn main_window_toggle_maximize(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
-
-    let is_maximized = window.is_maximized().map_err(|error| {
-        format!("Could not read the maximize state of the main window: {error}")
-    })?;
-
-    if is_maximized {
-        window
-            .unmaximize()
-            .map_err(|error| format!("Could not restore the main window: {error}"))
-    } else {
-        window
-            .maximize()
-            .map_err(|error| format!("Could not maximize the main window: {error}"))
-    }
-}
-
-#[tauri::command]
-fn main_window_close(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Could not resolve the main window.".to_string())?;
-
-    window
-        .close()
-        .map_err(|error| format!("Could not close the main window: {error}"))
-}
-
-#[tauri::command]
-fn launch_soundcloud_shell(app: AppHandle, target: Option<String>) -> Result<(), String> {
-    launch_soundcloud_shell_inner(app, target.as_deref())
-}
-
-#[tauri::command]
-fn navigate_soundcloud_shell(app: AppHandle, target: String) -> Result<(), String> {
-    let target_url = resolve_soundcloud_target(Some(target.as_str()))?;
-
-    if let Some(webview) = app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL) {
-        webview
-            .navigate(target_url)
-            .map_err(|error| format!("Could not navigate the SoundCloud shell: {error}"))?;
-        return Ok(());
-    }
-
-    launch_soundcloud_shell_inner(app, Some(target.as_str()))
-}
-
-fn launch_soundcloud_shell_inner(app: AppHandle, target: Option<&str>) -> Result<(), String> {
-    let shell_url = resolve_soundcloud_target(target)?;
-
-    if let Some(webview) = app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL) {
-        webview
-            .navigate(shell_url)
-            .map_err(|error| format!("Could not navigate the SoundCloud shell: {error}"))?;
-        return Ok(());
-    }
-
-    let app_handle = app.clone();
-    std::thread::spawn(move || {
-        let Some(window) = app_handle.get_window("main") else {
-            return;
-        };
-
-        if app_handle.get_webview(SOUNDCLOUD_WEBVIEW_LABEL).is_some() {
-            return;
-        }
-
-        let Ok(inner_size) = window.inner_size() else {
-            return;
-        };
-        let Ok(scale_factor) = window.scale_factor() else {
-            return;
-        };
-
-        let logical_size = inner_size.to_logical::<f64>(scale_factor);
-        let width = (logical_size.width - SHELL_PADDING * 2.0).max(MIN_WEBVIEW_WIDTH);
-        let height =
-            (logical_size.height - SHELL_TOP_INSET - SHELL_BOTTOM_INSET).max(MIN_WEBVIEW_HEIGHT);
-        let popup_app_handle = app_handle.clone();
-        let shell_app_handle = app_handle.clone();
-
-        let webview_builder =
-            WebviewBuilder::new(SOUNDCLOUD_WEBVIEW_LABEL, WebviewUrl::External(shell_url))
-                .zoom_hotkeys_enabled(true)
-                .background_color((5, 5, 6, 255).into())
-                .on_page_load(move |webview, payload| {
-                    if !matches!(payload.event(), PageLoadEvent::Finished) {
-                        return;
-                    }
-
-                    let current_url = payload.url();
-                    if is_soundcloud_url(current_url) {
-                        let _ = webview.eval(SOUNDCLOUD_SHELL_PATCH_SCRIPT);
-                    }
-
-                    let should_close_auth_popups = is_soundcloud_url(current_url)
-                        && !current_url.path().starts_with("/signin")
-                        && !current_url.path().starts_with("/connect")
-                        && !current_url.path().starts_with("/oauth");
-
-                    if should_close_auth_popups {
-                        close_soundcloud_popups(&shell_app_handle);
-                    }
-                })
-                .on_new_window(move |url, features| {
-                    let popup_label = format!(
-                        "{SOUNDCLOUD_POPUP_LABEL_PREFIX}-{}",
-                        POPUP_COUNTER.fetch_add(1, Ordering::Relaxed)
-                    );
-
-                    let popup_builder = WebviewWindowBuilder::new(
-                        &popup_app_handle,
-                        &popup_label,
-                        WebviewUrl::External(url),
-                    )
-                    .window_features(features)
-                    .focused(true)
-                    .resizable(true)
-                    .title("SoundCloud sign-in")
-                    .on_page_load(|window, payload| {
-                        if !matches!(payload.event(), PageLoadEvent::Finished) {
-                            return;
-                        }
-
-                        let current_url = payload.url();
-                        let is_blank = current_url.scheme() == "about";
-                        let is_close_hint =
-                            is_soundcloud_url(current_url)
-                                && current_url.path() == "/"
-                                && current_url.query().is_none();
-
-                        if is_blank || is_close_hint {
-                            let _ = window.close();
-                        }
-                    })
-                    .on_document_title_changed(|window, title| {
-                        let _ = window.set_title(&title);
-                    });
-
-                    match popup_builder.build() {
-                        Ok(window) => NewWindowResponse::Create { window },
-                        Err(_) => NewWindowResponse::Allow,
-                    }
-                });
-
-        let _ = window.add_child(
-            webview_builder,
-            LogicalPosition::new(SHELL_PADDING, SHELL_TOP_INSET),
-            LogicalSize::new(width, height),
-        );
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
-fn begin_soundcloud_login(
-    app: AppHandle,
-    runtime: State<SharedAuthRuntime>,
-) -> Result<AuthLaunch, String> {
-    auth_backend::begin_soundcloud_login(app, runtime)
-}
-
-fn fetch_tracks(
-    client: &Client,
-    access_token: &str,
-    path: &str,
-) -> Result<Vec<SoundCloudTrack>, String> {
-    authorized_get_json::<ApiCollection<SoundCloudTrack>>(client, access_token, path)
-        .map(ApiCollection::into_vec)
-}
-
-fn fetch_playlists(
-    client: &Client,
-    access_token: &str,
-    path: &str,
-) -> Result<Vec<SoundCloudPlaylist>, String> {
-    authorized_get_json::<ApiCollection<SoundCloudPlaylist>>(client, access_token, path)
-        .map(ApiCollection::into_vec)
-}
-
-fn fetch_recent_tracks(
-    client: &Client,
-    access_token: &str,
-    recent_track_urns: &[String],
-) -> Result<Vec<SoundCloudTrack>, String> {
-    let recent_track_urns: Vec<String> = recent_track_urns
-        .iter()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .take(12)
-        .collect();
-
-    if recent_track_urns.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let query = recent_track_urns.join(",");
-    let mut resolved = fetch_tracks(
-        client,
-        access_token,
-        &format!(
-            "/tracks?urns={}&limit={}",
-            urlencoding::encode(&query),
-            recent_track_urns.len()
-        ),
-    )?;
-
-    resolved.sort_by_key(|track| {
-        recent_track_urns
-            .iter()
-            .position(|urn| urn == &track.urn)
-            .unwrap_or(usize::MAX)
-    });
-
-    Ok(resolved)
-}
-
-fn authorized_get_json<T>(client: &Client, access_token: &str, path: &str) -> Result<T, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let url = if path.starts_with("http://") || path.starts_with("https://") {
-        path.to_string()
-    } else {
-        format!("https://api.soundcloud.com{path}")
-    };
-
-    client
-        .get(url)
-        .header("accept", "application/json; charset=utf-8")
-        .header("Authorization", format!("OAuth {access_token}"))
-        .send()
-        .map_err(|error| format!("Could not load SoundCloud data: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("SoundCloud rejected the request: {error}"))?
-        .json::<T>()
-        .map_err(|error| format!("Could not decode the SoundCloud response: {error}"))
-}
-
-fn close_soundcloud_popups(app: &AppHandle) {
-    for (label, window) in app.webview_windows() {
-        if label.starts_with(SOUNDCLOUD_POPUP_LABEL_PREFIX) {
-            let _ = window.close();
-        }
-    }
-}
-
-fn is_soundcloud_url(url: &Url) -> bool {
-    matches!(url.host_str(), Some("soundcloud.com" | "www.soundcloud.com"))
-}
-
-fn resolve_soundcloud_target(target: Option<&str>) -> Result<Url, String> {
-    let raw = target.unwrap_or(SOUNDCLOUD_HOME_URL).trim();
-
-    if raw.is_empty() {
-        return Url::parse(SOUNDCLOUD_HOME_URL)
-            .map_err(|error| format!("Could not parse the SoundCloud URL: {error}"));
-    }
-
-    if raw.starts_with("http://") || raw.starts_with("https://") {
-        let parsed =
-            Url::parse(raw).map_err(|error| format!("Could not parse the SoundCloud URL: {error}"))?;
-
-        if !is_soundcloud_url(&parsed) {
-            return Err("SoundunCloud only navigates to SoundCloud URLs.".to_string());
-        }
-
-        return Ok(parsed);
-    }
-
-    Url::parse(SOUNDCLOUD_BASE_URL)
-        .and_then(|base| base.join(raw.trim_start_matches('/')))
-        .map_err(|error| format!("Could not build the SoundCloud URL: {error}"))
-}
-
-fn load_session_metadata(app: &AppHandle) -> Result<Option<StoredSessionMetadata>, String> {
-    let path = app_file_path(app, SESSION_FILE_NAME)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-
-    if let Ok(legacy) = serde_json::from_str::<LegacyPersistedSession>(&raw) {
-        let session = PersistedSession {
-            access_token: legacy.access_token,
-            refresh_token: legacy.refresh_token,
-            expires_at: legacy.expires_at,
-            user: legacy.user,
-        };
-        save_session_file(app, session.clone())?;
-        return Ok(Some(StoredSessionMetadata {
-            expires_at: session.expires_at,
-            user: session.user,
-        }));
-    }
-
-    read_json_file(app, SESSION_FILE_NAME)
-}
-
-fn save_session_file(app: &AppHandle, session: PersistedSession) -> Result<(), String> {
-    let metadata = StoredSessionMetadata {
-        expires_at: session.expires_at,
-        user: session.user,
-    };
-    let secrets = SessionSecrets {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-    };
-
-    write_json_file(app, SESSION_FILE_NAME, &metadata)?;
-    write_keyring_json(SESSION_SECRET_ENTRY, &secrets)
-}
-
-fn load_session_secrets() -> Result<Option<SessionSecrets>, String> {
-    let Some(raw) = load_keyring_secret(SESSION_SECRET_ENTRY)? else {
-        return Ok(None);
-    };
-
-    serde_json::from_str::<SessionSecrets>(&raw)
-        .map(Some)
-        .map_err(|error| format!("Could not decode the stored session secrets: {error}"))
-}
-
-fn clear_session_state(app: &AppHandle) -> Result<(), String> {
-    let session_path = app_file_path(app, SESSION_FILE_NAME)?;
-    if session_path.exists() {
-        fs::remove_file(session_path).map_err(|error| error.to_string())?;
-    }
-    delete_keyring_secret(SESSION_SECRET_ENTRY)
-}
-
-fn build_desktop_context(app: &AppHandle) -> DesktopContext {
-    let package = app.package_info();
-
-    DesktopContext {
-        app_name: package.name.clone(),
-        version: package.version.to_string(),
-        platform_label: format!("{} desktop", std::env::consts::OS),
-        arch: std::env::consts::ARCH.to_string(),
-        build_profile: if cfg!(debug_assertions) {
-            "debug".into()
-        } else {
-            "release".into()
-        },
-    }
-}
-
-fn current_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
-fn http_client(timeout: Duration) -> Result<Client, String> {
-    Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|error| error.to_string())
-}
-
-fn keyring_entry(key: &str) -> Result<Entry, String> {
-    Entry::new(KEYRING_SERVICE, key)
-        .map_err(|error| format!("Could not prepare secure storage: {error}"))
-}
-
-fn load_keyring_secret(key: &str) -> Result<Option<String>, String> {
-    let entry = keyring_entry(key)?;
-    match entry.get_password() {
-        Ok(secret) => Ok(Some(secret)),
-        Err(KeyringError::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Could not read secure storage: {error}")),
-    }
-}
-
-fn write_keyring_secret(key: &str, value: &str) -> Result<(), String> {
-    keyring_entry(key)?
-        .set_password(value)
-        .map_err(|error| format!("Could not save secure storage entry: {error}"))
-}
-
-fn write_keyring_json<T>(key: &str, value: &T) -> Result<(), String>
-where
-    T: Serialize,
-{
-    let serialized = serde_json::to_string(value).map_err(|error| error.to_string())?;
-    write_keyring_secret(key, &serialized)
-}
-
-fn delete_keyring_secret(key: &str) -> Result<(), String> {
-    let entry = keyring_entry(key)?;
-    match entry.delete_credential() {
-        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Could not clear secure storage entry: {error}")),
-    }
-}
-
-fn app_file_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Could not resolve the app data directory: {error}"))?;
-
-    if !app_dir.exists() {
-        fs::create_dir_all(&app_dir).map_err(|error| error.to_string())?;
-    }
-
-    Ok(app_dir.join(file_name))
-}
-
-fn read_json_file<T>(app: &AppHandle, file_name: &str) -> Result<Option<T>, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let path = app_file_path(app, file_name)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let parsed = serde_json::from_str::<T>(&raw).map_err(|error| error.to_string())?;
-    Ok(Some(parsed))
-}
-
-fn write_json_file<T>(app: &AppHandle, file_name: &str, value: &T) -> Result<(), String>
-where
-    T: Serialize,
-{
-    let path = app_file_path(app, file_name)?;
-    let serialized = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, serialized).map_err(|error| error.to_string())
-}
+mod audio_player;
+mod constants;
+mod discord;
+mod proxy;
+mod proxy_server;
+mod server;
+mod static_server;
+mod tray;
+
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
+
+use discord::DiscordState;
+use server::ServerState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
-
-    #[cfg(desktop)]
-    {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
-    }
+    let builder = tauri::Builder::default();
 
     builder
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_process::init())
-        .setup(|app| {
-            #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
-
-            #[cfg(desktop)]
-            {
-                let _ = app.deep_link().register("sounduncloud");
-
-                let app_handle = app.handle().clone();
-                if let Some(urls) = app.deep_link().get_current()? {
-                    auth_backend::handle_deep_link_urls(&app_handle, &urls);
-                }
-
-                let app_handle = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    let urls = event.urls().to_vec();
-                    auth_backend::handle_deep_link_urls(&app_handle, &urls);
-                });
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
             }
+        }))
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_asynchronous_uri_scheme_protocol("scproxy", |_ctx, request, responder| {
+            let Some(state) = proxy::STATE.get() else {
+                responder.respond(
+                    http::Response::builder()
+                        .status(503)
+                        .body(b"not ready".to_vec())
+                        .unwrap(),
+                );
+                return;
+            };
+            state.rt_handle.spawn(async move {
+                responder.respond(proxy::handle_uri(request).await);
+            });
+        })
+        .setup(move |app| {
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .expect("failed to resolve app cache dir");
 
-            #[cfg(target_os = "windows")]
+            let audio_dir = cache_dir.join("audio");
+            std::fs::create_dir_all(&audio_dir).ok();
+
+            let assets_dir = cache_dir.join("assets");
+            std::fs::create_dir_all(&assets_dir).ok();
+
+            let wallpapers_dir = cache_dir.join("wallpapers");
+            std::fs::create_dir_all(&wallpapers_dir).ok();
+
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+
+            proxy::STATE
+                .set(proxy::State {
+                    assets_dir,
+                    http_client: reqwest::Client::new(),
+                    rt_handle: rt.handle().clone(),
+                })
+                .ok();
+
+            let (static_port, proxy_port) =
+                rt.block_on(server::start_all(wallpapers_dir));
+
+            std::thread::spawn(move || {
+                rt.block_on(std::future::pending::<()>());
+            });
+
+            app.manage(Arc::new(ServerState {
+                static_port,
+                proxy_port,
+            }));
+            app.manage(Arc::new(DiscordState {
+                client: Mutex::new(None),
+            }));
+
+            let audio_state = audio_player::init();
+            app.manage(audio_state);
+            audio_player::start_tick_emitter(app.handle());
+            audio_player::start_media_controls(app.handle());
+
+            tray::setup_tray(app).expect("failed to setup tray");
+
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.center();
                 let _ = window.show();
             }
 
             Ok(())
         })
-        .manage(Arc::new(Mutex::new(AuthRuntime::default())))
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            begin_soundcloud_login,
-            clear_local_session,
-            desktop_context,
-            launch_soundcloud_shell,
-            navigate_soundcloud_shell,
-            load_personalized_home,
-            load_sounduncloud_snapshot,
-            main_window_close,
-            main_window_minimize,
-            main_window_start_dragging,
-            main_window_toggle_maximize
+            server::get_server_ports,
+            discord::discord_connect,
+            discord::discord_disconnect,
+            discord::discord_set_activity,
+            discord::discord_clear_activity,
+            audio_player::audio_load_file,
+            audio_player::audio_load_url,
+            audio_player::audio_play,
+            audio_player::audio_pause,
+            audio_player::audio_stop,
+            audio_player::audio_seek,
+            audio_player::audio_set_volume,
+            audio_player::audio_get_position,
+            audio_player::audio_set_eq,
+            audio_player::audio_is_playing,
+            audio_player::audio_set_metadata,
+            audio_player::audio_set_playback_state,
+            audio_player::audio_set_media_position,
+            audio_player::audio_list_devices,
+            audio_player::audio_switch_device,
+            audio_player::save_track_to_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
