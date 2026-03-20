@@ -16,7 +16,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
 #[cfg(target_os = "windows")]
-use window_vibrancy::apply_blur;
+use window_vibrancy::apply_mica;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
@@ -1032,7 +1032,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.center();
 
-                let _ = apply_blur(&window, Some((8, 8, 10, 132)));
+                let _ = apply_mica(&window, Some(true));
 
                 let _ = window.show();
             }

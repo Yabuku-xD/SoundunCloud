@@ -89,6 +89,7 @@ function AppRoot() {
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
@@ -110,14 +111,14 @@ function AppRoot() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
-  const handleGatePointerDown = (event: MouseEvent<HTMLDivElement>) => {
+  const handleShellPointerDown = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
 
     if (target.closest("button, input, a, iframe, [data-no-drag]")) {
       return;
     }
 
-    void windowHandle.startDragging();
+    void invoke("main_window_start_dragging");
   };
 
   const refreshSnapshot = useEffectEvent(async () => {
@@ -136,6 +137,8 @@ function AppRoot() {
   });
 
   const checkForUpdates = useEffectEvent(async () => {
+    setIsCheckingUpdates(true);
+
     try {
       const update = await Promise.race<AvailableUpdate | null>([
         check({ timeout: 4000 }),
@@ -144,8 +147,20 @@ function AppRoot() {
         }),
       ]);
       setAvailableUpdate(update ?? null);
+      setFeedback({
+        tone: "info",
+        message: update
+          ? `Update v${update.version} is ready to install.`
+          : "SoundunCloud is up to date.",
+      });
     } catch {
       setAvailableUpdate(null);
+      setFeedback({
+        tone: "error",
+        message: "SoundunCloud could not check for updates right now.",
+      });
+    } finally {
+      setIsCheckingUpdates(false);
     }
   });
 
@@ -211,7 +226,6 @@ function AppRoot() {
   useEffect(() => {
     void windowHandle.center();
     void refreshSnapshot();
-    void checkForUpdates();
 
     let cancelled = false;
 
@@ -264,7 +278,7 @@ function AppRoot() {
       void unlistenSuccess.then((stop) => stop());
       void unlistenError.then((stop) => stop());
     };
-  }, [checkForUpdates, refreshSnapshot]);
+  }, [refreshSnapshot]);
 
   useEffect(() => {
     saveJson(STORAGE_KEYS.recentTrackUrns, recentTrackUrns);
@@ -498,6 +512,19 @@ function AppRoot() {
     }
   };
 
+  const handleUpdateAction = async () => {
+    if (isCheckingUpdates || isInstallingUpdate) {
+      return;
+    }
+
+    if (availableUpdate) {
+      await handleInstallUpdate();
+      return;
+    }
+
+    await checkForUpdates();
+  };
+
   const handleSignOut = async () => {
     await invoke("clear_local_session");
     setHome(null);
@@ -574,7 +601,7 @@ function AppRoot() {
   return (
     <div
       className={`shell ${signedIn ? "shell--signed-in" : "shell--gate"}`}
-      onMouseDown={signedIn ? undefined : handleGatePointerDown}
+      onMouseDown={handleShellPointerDown}
     >
       <WindowControls />
 
@@ -592,11 +619,7 @@ function AppRoot() {
         <SignedOutGate
           canSignIn={snapshot.oauthConfigured}
           isAuthorizing={isAuthorizing}
-          isInstallingUpdate={isInstallingUpdate}
           onBeginLogin={handleBeginLogin}
-          onInstallUpdate={handleInstallUpdate}
-          updateProgress={updateProgress}
-          updateVersion={availableUpdate?.version ?? null}
         />
       ) : (
         <main className="signed-in-shell">
@@ -655,24 +678,6 @@ function AppRoot() {
               </div>
 
               <div className="content__controls">
-                {availableUpdate ? (
-                  <button
-                    className="button button--ghost"
-                    disabled={isInstallingUpdate}
-                    onClick={() => void handleInstallUpdate()}
-                    type="button"
-                  >
-                    {isInstallingUpdate ? (
-                      <LoaderCircle className="spin" size={16} />
-                    ) : (
-                      <AudioLines size={16} />
-                    )}
-                    {isInstallingUpdate
-                      ? buildInstallLabel(updateProgress)
-                      : `Install v${availableUpdate.version}`}
-                  </button>
-                ) : null}
-
                 <form className="searchbar" onSubmit={handleSearchSubmit} role="search">
                   <Search size={18} />
                   <input
@@ -855,6 +860,32 @@ function AppRoot() {
           />
         </main>
       )}
+
+      <button
+        aria-live="polite"
+        className={`update-fab ${signedIn ? "update-fab--signed-in" : ""} ${
+          availableUpdate ? "update-fab--ready" : ""
+        }`}
+        data-no-drag
+        disabled={isCheckingUpdates || isInstallingUpdate}
+        onClick={() => void handleUpdateAction()}
+        type="button"
+      >
+        {isCheckingUpdates || isInstallingUpdate ? (
+          <LoaderCircle className="spin" size={11} />
+        ) : (
+          <ArrowUpRight size={11} />
+        )}
+        <span>
+          {isInstallingUpdate
+            ? buildInstallLabel(updateProgress)
+            : availableUpdate
+              ? `Install v${availableUpdate.version}`
+              : isCheckingUpdates
+                ? "Checking updates..."
+                : "Check for updates"}
+        </span>
+      </button>
     </div>
   );
 }
@@ -862,36 +893,16 @@ function AppRoot() {
 type SignedOutGateProps = {
   canSignIn: boolean;
   isAuthorizing: boolean;
-  isInstallingUpdate: boolean;
   onBeginLogin: () => void | Promise<void>;
-  onInstallUpdate: () => void | Promise<void>;
-  updateProgress: UpdateProgress | null;
-  updateVersion: string | null;
 };
 
 function SignedOutGate({
   canSignIn,
   isAuthorizing,
-  isInstallingUpdate,
   onBeginLogin,
-  onInstallUpdate,
-  updateProgress,
-  updateVersion,
 }: SignedOutGateProps) {
   return (
     <main className="gate">
-      <button
-        aria-label="Drag window"
-        className="gate__drag-surface"
-        data-no-drag
-        data-tauri-drag-region
-        onMouseDown={(event) => {
-          event.stopPropagation();
-          void invoke("main_window_start_dragging");
-        }}
-        type="button"
-      />
-
       <section className="gate__stack" aria-label="Sign in to SoundunCloud">
         <img
           alt="SoundCloud"
@@ -909,40 +920,12 @@ function SignedOutGate({
           {isAuthorizing ? <LoaderCircle className="spin" size={16} /> : null}
           {isAuthorizing ? "Waiting for SoundCloud" : "Sign in with SoundCloud"}
         </button>
-
-        {updateVersion ? (
-          <div className="update-card panel" aria-live="polite">
-            <span>Update v{updateVersion} is ready</span>
-            <button
-              className="button button--ghost"
-              disabled={isInstallingUpdate}
-              onClick={() => void onInstallUpdate()}
-              type="button"
-            >
-              {isInstallingUpdate ? (
-                <LoaderCircle className="spin" size={16} />
-              ) : (
-                <ArrowUpRight size={16} />
-              )}
-              {isInstallingUpdate
-                ? buildInstallLabel(updateProgress)
-                : "Install update"}
-            </button>
-          </div>
-        ) : (
-          <div aria-hidden="true" className="gate__status-slot" />
-        )}
       </section>
     </main>
   );
 }
 
 function WindowControls() {
-  const handleDragMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    void invoke("main_window_start_dragging");
-  };
-
   const handleMinimize = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     void invoke("main_window_minimize");
@@ -960,13 +943,6 @@ function WindowControls() {
 
   return (
     <div className="window-frame">
-      <div
-        className="window-frame__drag"
-        data-no-drag
-        data-tauri-drag-region
-        onMouseDown={handleDragMouseDown}
-      />
-
       <div className="window-frame__controls" data-no-drag>
         <button
           aria-label="Minimize window"

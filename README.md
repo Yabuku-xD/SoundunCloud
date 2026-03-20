@@ -10,7 +10,7 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.3.9-F28C52)
+![Version](https://img.shields.io/badge/version-v0.3.10-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
@@ -47,14 +47,14 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 
 ## Features
 
-- Glassmorphic frameless Windows desktop shell with floating window controls and Tauri packaging
+- Black-tinted glassmorphic frameless Windows desktop shell with floating window controls and Tauri packaging
 - Minimal SoundCloud-style startup gate with a single browser-based sign-in action
 - Official white-on-transparent SoundCloud wordmark on the startup surface
 - Required browser-based SoundCloud OAuth bootstrap before the app home unlocks
 - Personalized signed-in home built from your SoundCloud feed, liked tracks, playlists, and recent desktop plays
 - Secure local storage for tokens and app secrets via OS-backed keyring storage
 - Embedded SoundCloud widget playback inside the app with a persistent desktop player dock
-- In-app updater support for installing new releases without rerunning loose binaries
+- In-app updater support with a themed manual update control in the bottom-right corner
 - Search handoff to SoundCloud's web search when you need results beyond the current home view
 
 ## Architecture

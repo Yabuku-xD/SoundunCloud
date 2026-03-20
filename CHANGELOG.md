@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.10 - 2026-03-19
+
+- Removed the visible drag strip and kept frameless movement working through an invisible drag surface instead of the old top bar
+- Reworked the startup shell to use a darker, steadier black-tinted glass treatment that avoids the opaque-to-glass flicker while moving the window
+- Moved update handling into a compact themed bottom-right action so the startup screen and signed-in header stay cleaner
+
 ## v0.3.9 - 2026-03-19
 
 - Restored working custom window controls on the frameless shell by routing drag, minimize, maximize, and close through native Tauri window commands for the real `main` window
