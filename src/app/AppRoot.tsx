@@ -21,13 +21,13 @@ const windowHandle = getCurrentWebviewWindow();
 const SOUNDCLOUD_WEBVIEW_LABEL = "soundcloud-shell";
 const SOUNDCLOUD_HOME_URL = "https://soundcloud.com";
 const SHELL_PADDING = 18;
-const CHROME_HEIGHT = 72;
-const FOOTER_HEIGHT = 64;
-const MIN_WEBVIEW_HEIGHT = 360;
-const MIN_WEBVIEW_WIDTH = 640;
+const SHELL_TOP_INSET = 78;
+const SHELL_BOTTOM_INSET = 82;
+const MIN_WEBVIEW_HEIGHT = 420;
+const MIN_WEBVIEW_WIDTH = 720;
 
 type AvailableUpdate = Exclude<Awaited<ReturnType<typeof check>>, null>;
-type ShellPhase = "launching" | "ready" | "error";
+type ShellPhase = "idle" | "launching" | "ready" | "error";
 
 type UpdateFabState =
   | { kind: "idle" }
@@ -39,7 +39,7 @@ type UpdateFabState =
   | { kind: "error"; detail?: string };
 
 function AppRoot() {
-  const [shellPhase, setShellPhase] = useState<ShellPhase>("launching");
+  const [shellPhase, setShellPhase] = useState<ShellPhase>("idle");
   const [shellError, setShellError] = useState<string | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateFabState, setUpdateFabState] = useState<UpdateFabState>({
@@ -49,7 +49,7 @@ function AppRoot() {
   const isCheckingUpdates = updateFabState.kind === "checking";
   const isInstallingUpdate = updateFabState.kind === "installing";
 
-  const handleChromePointerDown = (event: MouseEvent<HTMLElement>) => {
+  const handleShellPointerDown = (event: MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
 
     if (target.closest("button, input, a, [data-no-drag]")) {
@@ -76,11 +76,11 @@ function AppRoot() {
     );
     const height = Math.max(
       MIN_WEBVIEW_HEIGHT,
-      innerSize.height / scaleFactor - CHROME_HEIGHT - FOOTER_HEIGHT,
+      innerSize.height / scaleFactor - SHELL_TOP_INSET - SHELL_BOTTOM_INSET,
     );
 
     await Promise.all([
-      shellWebview.setPosition(new LogicalPosition(SHELL_PADDING, CHROME_HEIGHT)),
+      shellWebview.setPosition(new LogicalPosition(SHELL_PADDING, SHELL_TOP_INSET)),
       shellWebview.setSize(new LogicalSize(width, height)),
     ]);
   });
@@ -89,56 +89,82 @@ function AppRoot() {
     setShellPhase("launching");
     setShellError(null);
 
-    const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
-    if (existing) {
-      await syncShellWebviewBounds();
-      await existing.show();
-      await existing.setFocus();
-      setShellPhase("ready");
-      return;
-    }
+    try {
+      const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+      if (existing) {
+        await syncShellWebviewBounds();
+        await existing.show();
+        await existing.setFocus();
+        setShellPhase("ready");
+        return;
+      }
 
-    const [innerSize, scaleFactor] = await Promise.all([
-      windowHandle.innerSize(),
-      windowHandle.scaleFactor(),
-    ]);
+      const [innerSize, scaleFactor] = await Promise.all([
+        windowHandle.innerSize(),
+        windowHandle.scaleFactor(),
+      ]);
 
-    const width = Math.max(
-      MIN_WEBVIEW_WIDTH,
-      innerSize.width / scaleFactor - SHELL_PADDING * 2,
-    );
-    const height = Math.max(
-      MIN_WEBVIEW_HEIGHT,
-      innerSize.height / scaleFactor - CHROME_HEIGHT - FOOTER_HEIGHT,
-    );
+      const width = Math.max(
+        MIN_WEBVIEW_WIDTH,
+        innerSize.width / scaleFactor - SHELL_PADDING * 2,
+      );
+      const height = Math.max(
+        MIN_WEBVIEW_HEIGHT,
+        innerSize.height / scaleFactor - SHELL_TOP_INSET - SHELL_BOTTOM_INSET,
+      );
 
-    const shellWebview = new Webview(windowHandle, SOUNDCLOUD_WEBVIEW_LABEL, {
-      url: SOUNDCLOUD_HOME_URL,
-      x: SHELL_PADDING,
-      y: CHROME_HEIGHT,
-      width,
-      height,
-      focus: true,
-      dataDirectory: "soundcloud-web-shell",
-      backgroundColor: "#050506",
-      zoomHotkeysEnabled: true,
-    });
+      const shellWebview = new Webview(windowHandle, SOUNDCLOUD_WEBVIEW_LABEL, {
+        url: SOUNDCLOUD_HOME_URL,
+        x: SHELL_PADDING,
+        y: SHELL_TOP_INSET,
+        width,
+        height,
+        focus: true,
+        dataDirectory: "soundcloud-web-shell",
+        backgroundColor: "#050506",
+        zoomHotkeysEnabled: true,
+      });
 
-    void shellWebview.once("tauri://created", () => {
-      setShellPhase("ready");
-      setShellError(null);
-      void syncShellWebviewBounds();
-    });
+      void shellWebview.once("tauri://created", async () => {
+        await syncShellWebviewBounds();
+        setShellError(null);
+        setShellPhase("ready");
+      });
 
-    void shellWebview.once("tauri://error", (event) => {
+      void shellWebview.once("tauri://error", (event) => {
+        setShellPhase("error");
+        setShellError(
+          formatUnknownError(
+            event.payload,
+            "SoundunCloud could not launch the embedded SoundCloud shell.",
+          ),
+        );
+      });
+    } catch (error) {
       setShellPhase("error");
       setShellError(
         formatUnknownError(
-          event.payload,
+          error,
           "SoundunCloud could not launch the embedded SoundCloud shell.",
         ),
       );
-    });
+    }
+  });
+
+  const restoreShellWebview = useEffectEvent(async () => {
+    try {
+      const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+      if (!existing) {
+        setShellPhase("idle");
+        return;
+      }
+
+      await syncShellWebviewBounds();
+      await existing.show();
+      setShellPhase("ready");
+    } catch {
+      setShellPhase("idle");
+    }
   });
 
   const recreateShellWebview = useEffectEvent(async () => {
@@ -248,7 +274,7 @@ function AppRoot() {
 
   useEffect(() => {
     void windowHandle.center();
-    void ensureShellWebview();
+    void restoreShellWebview();
 
     let cancelled = false;
 
@@ -269,7 +295,7 @@ function AppRoot() {
       void resizeListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [ensureShellWebview, syncShellWebviewBounds]);
+  }, [restoreShellWebview, syncShellWebviewBounds]);
 
   useEffect(() => {
     if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
@@ -297,134 +323,110 @@ function AppRoot() {
           : "";
 
   return (
-    <div className="shell">
+    <div className={`shell ${shellPhase === "ready" ? "shell--active" : ""}`}>
       <div className="shell__ambient" />
 
-      <header className="chrome" onMouseDown={handleChromePointerDown}>
-        <div className="chrome__bar">
-          <div className="chrome__brand">
-            <img alt="SoundCloud" className="chrome__logo" src={soundCloudLogoWhite} />
-            <div className="chrome__copy">
-              <strong>SoundunCloud</strong>
-              <span>Local SoundCloud web shell</span>
-            </div>
-          </div>
+      <div className="window-frame">
+        <div className="window-frame__drag-strip" onMouseDown={handleShellPointerDown} />
+        <WindowControls />
+      </div>
 
-          <div className="chrome__actions" data-no-drag>
-            <button
-              className="utility-chip"
-              onClick={() => void recreateShellWebview()}
-              type="button"
-            >
-              <RefreshCw size={13} />
-              <span>Reload</span>
-            </button>
-            <button
-              className="utility-chip"
-              onClick={() => void handleOpenInBrowser()}
-              type="button"
-            >
-              <ExternalLink size={13} />
-              <span>Browser</span>
-            </button>
-            <WindowControls />
-          </div>
-        </div>
-      </header>
-
-      <main className="viewport">
+      <main className="shell__stage" onMouseDown={handleShellPointerDown}>
         {shellPhase !== "ready" ? (
-          <LaunchOverlay
+          <LaunchGate
             detail={
               shellPhase === "error"
                 ? shellError ??
                   "SoundunCloud could not launch the embedded SoundCloud shell."
-                : "No hosting required. SoundCloud opens inside the app and keeps its web session on this device."
+                : "Open the real SoundCloud site inside the desktop app. Sign in there once and this device keeps that local web session."
             }
             isError={shellPhase === "error"}
+            isLaunching={shellPhase === "launching"}
+            onLaunch={ensureShellWebview}
             onOpenInBrowser={handleOpenInBrowser}
             onRetry={recreateShellWebview}
           />
         ) : null}
       </main>
 
-      <footer className="footer">
-        <div className="footer__bar">
-          <p className="footer__copy">
-            {shellPhase === "ready"
-              ? "Sign in on the SoundCloud site once and this device stays signed in there."
-              : "Preparing the embedded SoundCloud session."}
-          </p>
-
-          <button
-            aria-live="polite"
-            className={`update-fab ${updateFabToneClass}`}
-            data-no-drag
-            disabled={isCheckingUpdates || isInstallingUpdate}
-            onClick={() => void handleUpdateAction()}
-            title={updateFabTitle}
-            type="button"
-          >
-            {isCheckingUpdates || isInstallingUpdate ? (
-              <LoaderCircle className="spin" size={11} />
-            ) : (
-              <ArrowUpRight size={11} />
-            )}
-            <span>{updateFabLabel}</span>
-          </button>
-        </div>
-      </footer>
+      <button
+        aria-live="polite"
+        className={`update-fab ${updateFabToneClass}`}
+        data-no-drag
+        disabled={isCheckingUpdates || isInstallingUpdate}
+        onClick={() => void handleUpdateAction()}
+        title={updateFabTitle}
+        type="button"
+      >
+        {isCheckingUpdates || isInstallingUpdate ? (
+          <LoaderCircle className="spin" size={11} />
+        ) : (
+          <ArrowUpRight size={11} />
+        )}
+        <span>{updateFabLabel}</span>
+      </button>
     </div>
   );
 }
 
-type LaunchOverlayProps = {
+type LaunchGateProps = {
   detail: string;
   isError: boolean;
+  isLaunching: boolean;
+  onLaunch: () => Promise<void>;
   onOpenInBrowser: () => Promise<void>;
   onRetry: () => Promise<void>;
 };
 
-function LaunchOverlay({
+function LaunchGate({
   detail,
   isError,
+  isLaunching,
+  onLaunch,
   onOpenInBrowser,
   onRetry,
-}: LaunchOverlayProps) {
+}: LaunchGateProps) {
   return (
-    <section className="launch-overlay" aria-live="polite">
-      <div className="launch-overlay__stack">
-        <img alt="SoundCloud" className="launch-overlay__logo" src={soundCloudLogoWhite} />
-        <p className="launch-overlay__eyebrow">
-          {isError ? "Shell launch failed" : "Opening SoundCloud"}
+    <section className="launch-gate" aria-live="polite">
+      <div className="launch-gate__stack">
+        <img alt="SoundCloud" className="launch-gate__logo" src={soundCloudLogoWhite} />
+        <p className="launch-gate__eyebrow">
+          {isError ? "Shell launch failed" : "Local SoundCloud web shell"}
         </p>
-        <h1>
+        <h1 className="launch-gate__title">
           {isError
             ? "SoundCloud could not load in the desktop shell."
-            : "Your likes, feed, and account stay on the real SoundCloud site."}
+            : "Open SoundCloud inside a cleaner desktop frame."}
         </h1>
-        <p className="launch-overlay__detail">{detail}</p>
+        <p className="launch-gate__detail">{detail}</p>
 
-        <div className="launch-overlay__actions">
+        <div className="launch-gate__actions">
           {isError ? (
-            <button className="button button--primary" onClick={() => void onRetry()} type="button">
-              <RefreshCw size={15} />
-              Retry inside app
-            </button>
+            <>
+              <button className="button button--primary" onClick={() => void onRetry()} type="button">
+                <RefreshCw size={15} />
+                Retry inside app
+              </button>
+              <button
+                className="button button--ghost"
+                onClick={() => void onOpenInBrowser()}
+                type="button"
+              >
+                <ExternalLink size={15} />
+                Open in browser
+              </button>
+            </>
           ) : (
-            <button className="button button--primary" type="button">
-              <LoaderCircle className="spin" size={15} />
-              Loading SoundCloud
+            <button
+              className="button button--primary button--launch"
+              disabled={isLaunching}
+              onClick={() => void onLaunch()}
+              type="button"
+            >
+              {isLaunching ? <LoaderCircle className="spin" size={15} /> : null}
+              {isLaunching ? "Opening SoundCloud" : "Open SoundCloud"}
             </button>
           )}
-          <button
-            className="button button--ghost"
-            onClick={() => void onOpenInBrowser()}
-            type="button"
-          >
-            <ExternalLink size={15} />
-            Open in browser
-          </button>
         </div>
       </div>
     </section>

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.1 - 2026-03-20
+
+- Restored the cleaner centered launcher style for the local SoundCloud web-shell mode instead of the heavier permanent top chrome
+- Fixed the embedded SoundCloud shell regression by granting the Tauri child-webview permissions needed to create, size, focus, show, and close the in-app SoundCloud view
+- Simplified the shell so updates stay in the bottom-right utility control while retry and browser fallback actions only appear when the embedded shell actually fails
+
 ## v0.5.0 - 2026-03-19
 
 - Pivoted the desktop app into a local SoundCloud web-shell mode so users can sign in and use the real SoundCloud site inside the app without hosting any backend
