@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.2 - 2026-03-20
+
+- Fixed the centered launcher so `Open SoundCloud` reliably creates the embedded shell in the packaged Windows build instead of getting stuck in the loading state
+- Added popup-window handling for SoundCloud's provider-based sign-in flow so browser-auth windows can open inside the desktop app
+- Close leftover auth popups after the main SoundCloud shell lands on a signed-in page, while keeping the local web session persistent on the same device
+
 ## v0.5.1 - 2026-03-20
 
 - Restored the cleaner centered launcher style for the local SoundCloud web-shell mode instead of the heavier permanent top chrome

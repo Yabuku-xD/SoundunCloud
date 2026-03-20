@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
+    sync::atomic::{AtomicU32, Ordering},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{
+    webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
+    AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WebviewWindowBuilder,
+};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
@@ -21,6 +25,16 @@ const AUTH_EVENT_ERROR: &str = "sounduncloud://auth-error";
 const KEYRING_SERVICE: &str = "com.yabuku.sounduncloud";
 const SESSION_SECRET_ENTRY: &str = "oauth-session";
 const REFRESH_GRACE_SECONDS: u64 = 45;
+const SOUNDCLOUD_WEBVIEW_LABEL: &str = "soundcloud-shell";
+const SOUNDCLOUD_POPUP_LABEL_PREFIX: &str = "soundcloud-popup";
+const SOUNDCLOUD_HOME_URL: &str = "https://soundcloud.com/signin";
+const SHELL_PADDING: f64 = 18.0;
+const SHELL_TOP_INSET: f64 = 78.0;
+const SHELL_BOTTOM_INSET: f64 = 82.0;
+const MIN_WEBVIEW_HEIGHT: f64 = 420.0;
+const MIN_WEBVIEW_WIDTH: f64 = 720.0;
+
+static POPUP_COUNTER: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Clone, Default)]
 struct AuthRuntime {
@@ -245,7 +259,7 @@ fn load_personalized_home(
 #[tauri::command]
 fn main_window_start_dragging(app: AppHandle) -> Result<(), String> {
     let window = app
-        .get_webview_window("main")
+        .get_window("main")
         .ok_or_else(|| "Could not resolve the main window.".to_string())?;
 
     window
@@ -256,7 +270,7 @@ fn main_window_start_dragging(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn main_window_minimize(app: AppHandle) -> Result<(), String> {
     let window = app
-        .get_webview_window("main")
+        .get_window("main")
         .ok_or_else(|| "Could not resolve the main window.".to_string())?;
 
     window
@@ -294,6 +308,111 @@ fn main_window_close(app: AppHandle) -> Result<(), String> {
     window
         .close()
         .map_err(|error| format!("Could not close the main window: {error}"))
+}
+
+#[tauri::command]
+fn launch_soundcloud_shell(app: AppHandle) -> Result<(), String> {
+    if app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let Some(window) = app_handle.get_window("main") else {
+            return;
+        };
+
+        if app_handle.get_webview(SOUNDCLOUD_WEBVIEW_LABEL).is_some() {
+            return;
+        }
+
+        let Ok(shell_url) = SOUNDCLOUD_HOME_URL.parse() else {
+            return;
+        };
+        let Ok(inner_size) = window.inner_size() else {
+            return;
+        };
+        let Ok(scale_factor) = window.scale_factor() else {
+            return;
+        };
+
+        let logical_size = inner_size.to_logical::<f64>(scale_factor);
+        let width = (logical_size.width - SHELL_PADDING * 2.0).max(MIN_WEBVIEW_WIDTH);
+        let height =
+            (logical_size.height - SHELL_TOP_INSET - SHELL_BOTTOM_INSET).max(MIN_WEBVIEW_HEIGHT);
+        let popup_app_handle = app_handle.clone();
+        let shell_app_handle = app_handle.clone();
+
+        let webview_builder =
+            WebviewBuilder::new(SOUNDCLOUD_WEBVIEW_LABEL, WebviewUrl::External(shell_url))
+                .zoom_hotkeys_enabled(true)
+                .background_color((5, 5, 6, 255).into())
+                .on_page_load(move |_webview, payload| {
+                    if !matches!(payload.event(), PageLoadEvent::Finished) {
+                        return;
+                    }
+
+                    let current_url = payload.url();
+                    let is_soundcloud = matches!(current_url.host_str(), Some("soundcloud.com" | "www.soundcloud.com"));
+                    let should_close_auth_popups = is_soundcloud
+                        && !current_url.path().starts_with("/signin")
+                        && !current_url.path().starts_with("/connect")
+                        && !current_url.path().starts_with("/oauth");
+
+                    if should_close_auth_popups {
+                        close_soundcloud_popups(&shell_app_handle);
+                    }
+                })
+                .on_new_window(move |url, features| {
+                    let popup_label = format!(
+                        "{SOUNDCLOUD_POPUP_LABEL_PREFIX}-{}",
+                        POPUP_COUNTER.fetch_add(1, Ordering::Relaxed)
+                    );
+
+                    let popup_builder = WebviewWindowBuilder::new(
+                        &popup_app_handle,
+                        &popup_label,
+                        WebviewUrl::External(url),
+                    )
+                    .window_features(features)
+                    .focused(true)
+                    .resizable(true)
+                    .title("SoundCloud sign-in")
+                    .on_page_load(|window, payload| {
+                        if !matches!(payload.event(), PageLoadEvent::Finished) {
+                            return;
+                        }
+
+                        let current_url = payload.url();
+                        let is_blank = current_url.scheme() == "about";
+                        let is_close_hint = matches!(
+                            current_url.host_str(),
+                            Some("soundcloud.com" | "www.soundcloud.com")
+                        ) && current_url.path() == "/"
+                            && current_url.query().is_none();
+
+                        if is_blank || is_close_hint {
+                            let _ = window.close();
+                        }
+                    })
+                    .on_document_title_changed(|window, title| {
+                        let _ = window.set_title(&title);
+                    });
+
+                    match popup_builder.build() {
+                        Ok(window) => NewWindowResponse::Create { window },
+                        Err(_) => NewWindowResponse::Allow,
+                    }
+                });
+
+        let _ = window.add_child(
+            webview_builder,
+            LogicalPosition::new(SHELL_PADDING, SHELL_TOP_INSET),
+            LogicalSize::new(width, height),
+        );
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -379,6 +498,14 @@ where
         .map_err(|error| format!("SoundCloud rejected the request: {error}"))?
         .json::<T>()
         .map_err(|error| format!("Could not decode the SoundCloud response: {error}"))
+}
+
+fn close_soundcloud_popups(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with(SOUNDCLOUD_POPUP_LABEL_PREFIX) {
+            let _ = window.close();
+        }
+    }
 }
 
 fn load_session_metadata(app: &AppHandle) -> Result<Option<StoredSessionMetadata>, String> {
@@ -587,6 +714,7 @@ pub fn run() {
             begin_soundcloud_login,
             clear_local_session,
             desktop_context,
+            launch_soundcloud_shell,
             load_personalized_home,
             load_sounduncloud_snapshot,
             main_window_close,

@@ -13,13 +13,13 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import soundCloudLogoWhite from "../assets/soundcloud-logo-white.png";
 
 const windowHandle = getCurrentWebviewWindow();
 
 const SOUNDCLOUD_WEBVIEW_LABEL = "soundcloud-shell";
-const SOUNDCLOUD_HOME_URL = "https://soundcloud.com";
+const SOUNDCLOUD_HOME_URL = "https://soundcloud.com/signin";
 const SHELL_PADDING = 18;
 const SHELL_TOP_INSET = 78;
 const SHELL_BOTTOM_INSET = 82;
@@ -59,7 +59,7 @@ function AppRoot() {
     void invoke("main_window_start_dragging");
   };
 
-  const syncShellWebviewBounds = useEffectEvent(async () => {
+  const syncShellWebviewBounds = useCallback(async () => {
     const shellWebview = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
     if (!shellWebview) {
       return;
@@ -83,9 +83,9 @@ function AppRoot() {
       shellWebview.setPosition(new LogicalPosition(SHELL_PADDING, SHELL_TOP_INSET)),
       shellWebview.setSize(new LogicalSize(width, height)),
     ]);
-  });
+  }, []);
 
-  const ensureShellWebview = useEffectEvent(async () => {
+  const ensureShellWebview = useCallback(async () => {
     setShellPhase("launching");
     setShellError(null);
 
@@ -99,47 +99,18 @@ function AppRoot() {
         return;
       }
 
-      const [innerSize, scaleFactor] = await Promise.all([
-        windowHandle.innerSize(),
-        windowHandle.scaleFactor(),
-      ]);
+      await invoke("launch_soundcloud_shell");
 
-      const width = Math.max(
-        MIN_WEBVIEW_WIDTH,
-        innerSize.width / scaleFactor - SHELL_PADDING * 2,
-      );
-      const height = Math.max(
-        MIN_WEBVIEW_HEIGHT,
-        innerSize.height / scaleFactor - SHELL_TOP_INSET - SHELL_BOTTOM_INSET,
-      );
+      const shellWebview = await waitForShellWebview();
+      if (!shellWebview) {
+        throw new Error("SoundunCloud created the shell, but it never became addressable.");
+      }
 
-      const shellWebview = new Webview(windowHandle, SOUNDCLOUD_WEBVIEW_LABEL, {
-        url: SOUNDCLOUD_HOME_URL,
-        x: SHELL_PADDING,
-        y: SHELL_TOP_INSET,
-        width,
-        height,
-        focus: true,
-        dataDirectory: "soundcloud-web-shell",
-        backgroundColor: "#050506",
-        zoomHotkeysEnabled: true,
-      });
-
-      void shellWebview.once("tauri://created", async () => {
-        await syncShellWebviewBounds();
-        setShellError(null);
-        setShellPhase("ready");
-      });
-
-      void shellWebview.once("tauri://error", (event) => {
-        setShellPhase("error");
-        setShellError(
-          formatUnknownError(
-            event.payload,
-            "SoundunCloud could not launch the embedded SoundCloud shell.",
-          ),
-        );
-      });
+      await syncShellWebviewBounds();
+      await shellWebview.show();
+      await shellWebview.setFocus();
+      setShellError(null);
+      setShellPhase("ready");
     } catch (error) {
       setShellPhase("error");
       setShellError(
@@ -149,9 +120,9 @@ function AppRoot() {
         ),
       );
     }
-  });
+  }, [syncShellWebviewBounds]);
 
-  const restoreShellWebview = useEffectEvent(async () => {
+  const restoreShellWebview = useCallback(async () => {
     try {
       const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
       if (!existing) {
@@ -165,18 +136,18 @@ function AppRoot() {
     } catch {
       setShellPhase("idle");
     }
-  });
+  }, [syncShellWebviewBounds]);
 
-  const recreateShellWebview = useEffectEvent(async () => {
+  const recreateShellWebview = useCallback(async () => {
     const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
     if (existing) {
       await existing.close();
     }
 
     await ensureShellWebview();
-  });
+  }, [ensureShellWebview]);
 
-  const checkForUpdates = useEffectEvent(async () => {
+  const checkForUpdates = useCallback(async () => {
     setAvailableUpdate(null);
     setUpdateFabState({ kind: "checking" });
 
@@ -208,7 +179,7 @@ function AppRoot() {
         ),
       });
     }
-  });
+  }, []);
 
   const handleInstallUpdate = async () => {
     if (!availableUpdate) {
@@ -530,6 +501,19 @@ function formatUnknownError(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+async function waitForShellWebview() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const webview = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+    if (webview) {
+      return webview;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
+  }
+
+  return null;
 }
 
 function buildUpdateFabLabel(state: UpdateFabState) {
