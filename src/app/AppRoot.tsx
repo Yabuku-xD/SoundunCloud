@@ -452,7 +452,7 @@ function AppRoot() {
       setFeedback({
         tone: "error",
         message:
-          "This install is missing SoundCloud OAuth credentials, so sign-in cannot start yet.",
+          "This install is missing the SoundunCloud auth service configuration, so browser sign-in cannot start yet.",
       });
       return;
     }
@@ -464,7 +464,8 @@ function AppRoot() {
       await openUrl(authLaunch.authorizeUrl);
       setFeedback({
         tone: "info",
-        message: "SoundCloud opened in your browser. Finish sign-in there to continue.",
+        message:
+          "SoundCloud opened in your browser. Approve access there and SoundunCloud will finish sign-in automatically.",
       });
     } catch (error) {
       setIsAuthorizing(false);
@@ -644,7 +645,7 @@ function AppRoot() {
           unavailableReason={
             snapshot.oauthConfigured
               ? null
-              : "This install does not have SoundCloud OAuth credentials configured yet, so browser sign-in cannot start."
+              : "This install does not have the SoundunCloud auth service configured yet, so browser sign-in cannot start."
           }
         />
       ) : (

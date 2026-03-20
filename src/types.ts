@@ -58,14 +58,8 @@ export interface SoundunCloudSnapshot {
   hasLocalSession: boolean;
   authenticatedUser?: AuthenticatedUser | null;
   configSource: string;
-  storedClientId?: string | null;
+  authBaseUrl?: string | null;
   usesSecureStorage: boolean;
-}
-
-export interface OAuthConfigInput {
-  clientId: string;
-  clientSecret: string;
-  redirectPort: number;
 }
 
 export interface AuthLaunch {

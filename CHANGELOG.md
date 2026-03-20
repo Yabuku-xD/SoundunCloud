@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.0 - 2026-03-19
+
+- Replaced the desktop's local client-secret OAuth flow with a backend-assisted browser OAuth architecture built for public multi-user installs
+- Added a Rust auth service that starts SoundCloud OAuth, handles the callback, exchanges the auth code, issues one-time desktop tickets, and refreshes stored sessions
+- Swapped the desktop app to deep-link completion through `sounduncloud://auth/callback`, keeping user tokens local while removing the need to ship the SoundCloud client secret inside the app
+- Updated the README and environment model to separate desktop config from auth-service secrets
+
 ## v0.3.12 - 2026-03-19
 
 - Clarified the signed-out gate when SoundCloud browser sign-in is unavailable because this install has no OAuth credentials configured at runtime

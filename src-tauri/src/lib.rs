@@ -1,33 +1,27 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+mod auth_backend;
+
+use auth_backend::DESKTOP_CALLBACK_URL;
 use keyring::{Entry, Error as KeyringError};
-use rand::{distr::Alphanumeric, Rng};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager, State};
-use url::Url;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 #[cfg(target_os = "windows")]
 use window_vibrancy::apply_mica;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
+const PENDING_AUTH_FILE_NAME: &str = "sounduncloud-pending-auth.json";
 const AUTH_EVENT_SUCCESS: &str = "sounduncloud://auth-success";
 const AUTH_EVENT_ERROR: &str = "sounduncloud://auth-error";
-const DEFAULT_REDIRECT_PORT: u16 = 8976;
 const KEYRING_SERVICE: &str = "com.yabuku.sounduncloud";
-const CONFIG_SECRET_ENTRY: &str = "oauth-client-secret";
 const SESSION_SECRET_ENTRY: &str = "oauth-session";
-const AUTH_ACCEPT_TIMEOUT: Duration = Duration::from_secs(180);
-const AUTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const REFRESH_GRACE_SECONDS: u64 = 45;
 
 #[derive(Clone, Default)]
@@ -45,20 +39,6 @@ struct DesktopContext {
     platform_label: String,
     arch: String,
     build_profile: String,
-}
-
-#[derive(Debug, Clone)]
-struct OAuthConfig {
-    client_id: String,
-    client_secret: String,
-    redirect_port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StoredOAuthConfig {
-    client_id: String,
-    redirect_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,16 +98,8 @@ struct SoundunCloudSnapshot {
     has_local_session: bool,
     authenticated_user: Option<AuthenticatedUser>,
     config_source: String,
-    stored_client_id: Option<String>,
+    auth_base_url: Option<String>,
     uses_secure_storage: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OAuthConfigInput {
-    client_id: String,
-    client_secret: String,
-    redirect_port: u16,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,21 +107,6 @@ struct OAuthConfigInput {
 struct AuthLaunch {
     authorize_url: String,
     redirect_uri: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OAuthTokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct MeResponse {
-    username: String,
-    full_name: Option<String>,
-    permalink_url: Option<String>,
-    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,13 +175,6 @@ struct PersonalizedHome {
     playlists: Vec<SoundCloudPlaylist>,
 }
 
-struct ConfigResolution {
-    config: Option<OAuthConfig>,
-    config_source: String,
-    stored_client_id: Option<String>,
-    redirect_port: u16,
-}
-
 #[tauri::command]
 fn desktop_context(app: AppHandle) -> DesktopContext {
     build_desktop_context(&app)
@@ -233,34 +183,19 @@ fn desktop_context(app: AppHandle) -> DesktopContext {
 #[tauri::command]
 fn load_sounduncloud_snapshot(app: AppHandle) -> Result<SoundunCloudSnapshot, String> {
     let desktop_context = build_desktop_context(&app);
-    let config_resolution = load_effective_config(&app)?;
-    let session = load_session_file(&app, config_resolution.config.as_ref())?;
+    let config_resolution = auth_backend::load_effective_config(&app)?;
+    let session = auth_backend::load_session_file(&app, config_resolution.config.as_ref())?;
 
     Ok(SoundunCloudSnapshot {
         desktop_context,
         oauth_configured: config_resolution.config.is_some(),
-        redirect_uri: build_redirect_uri(config_resolution.redirect_port),
+        redirect_uri: DESKTOP_CALLBACK_URL.into(),
         has_local_session: session.is_some(),
         authenticated_user: session.map(|stored| stored.user),
         config_source: config_resolution.config_source,
-        stored_client_id: config_resolution.stored_client_id,
+        auth_base_url: config_resolution.auth_base_url,
         uses_secure_storage: true,
     })
-}
-
-#[tauri::command]
-fn save_oauth_config(app: AppHandle, input: OAuthConfigInput) -> Result<(), String> {
-    if input.client_id.trim().is_empty() || input.client_secret.trim().is_empty() {
-        return Err("Client ID and client secret are required.".into());
-    }
-
-    let config = StoredOAuthConfig {
-        client_id: input.client_id.trim().to_string(),
-        redirect_port: sanitize_port(input.redirect_port),
-    };
-
-    write_json_file(&app, CONFIG_FILE_NAME, &config)?;
-    write_keyring_secret(CONFIG_SECRET_ENTRY, input.client_secret.trim())
 }
 
 #[tauri::command]
@@ -273,8 +208,8 @@ fn load_personalized_home(
     app: AppHandle,
     recent_track_urns: Vec<String>,
 ) -> Result<PersonalizedHome, String> {
-    let config_resolution = load_effective_config(&app)?;
-    let session = load_session_file(&app, config_resolution.config.as_ref())?
+    let config_resolution = auth_backend::load_effective_config(&app)?;
+    let session = auth_backend::load_session_file(&app, config_resolution.config.as_ref())?
         .ok_or_else(|| "Sign in with SoundCloud before using the desktop app.".to_string())?;
     let client = http_client(Duration::from_secs(20))?;
 
@@ -337,9 +272,9 @@ fn main_window_toggle_maximize(app: AppHandle) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or_else(|| "Could not resolve the main window.".to_string())?;
 
-    let is_maximized = window
-        .is_maximized()
-        .map_err(|error| format!("Could not read the maximize state of the main window: {error}"))?;
+    let is_maximized = window.is_maximized().map_err(|error| {
+        format!("Could not read the maximize state of the main window: {error}")
+    })?;
 
     if is_maximized {
         window
@@ -368,231 +303,7 @@ fn begin_soundcloud_login(
     app: AppHandle,
     runtime: State<SharedAuthRuntime>,
 ) -> Result<AuthLaunch, String> {
-    let config = load_effective_config(&app)?
-        .config
-        .ok_or_else(|| "Save your SoundCloud client settings before signing in.".to_string())?;
-
-    {
-        let mut guard = runtime
-            .lock()
-            .map_err(|_| "Could not lock OAuth runtime.".to_string())?;
-        if guard.is_authorizing {
-            return Err("SoundCloud sign-in is already in progress.".into());
-        }
-        guard.is_authorizing = true;
-    }
-
-    let redirect_uri = build_redirect_uri(config.redirect_port);
-    let listener = TcpListener::bind(("127.0.0.1", config.redirect_port)).map_err(|_| {
-        format!(
-            "Port {} is unavailable for the OAuth callback.",
-            config.redirect_port
-        )
-    })?;
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| error.to_string())?;
-
-    let state = random_url_safe(24);
-    let code_verifier = random_url_safe(64);
-    let code_challenge = pkce_challenge(&code_verifier);
-    let authorize_url = format!(
-        "https://secure.soundcloud.com/authorize?client_id={}&redirect_uri={}&response_type=code&code_challenge={}&code_challenge_method=S256&state={}&display=popup",
-        urlencoding::encode(&config.client_id),
-        urlencoding::encode(&redirect_uri),
-        urlencoding::encode(&code_challenge),
-        urlencoding::encode(&state)
-    );
-
-    let app_handle = app.clone();
-    let runtime_handle = runtime.inner().clone();
-    let callback_redirect_uri = redirect_uri.clone();
-
-    thread::spawn(move || {
-        let result = complete_browser_flow(
-            &app_handle,
-            listener,
-            &config,
-            &callback_redirect_uri,
-            &state,
-            &code_verifier,
-        );
-
-        if let Ok(mut auth_runtime) = runtime_handle.lock() {
-            auth_runtime.is_authorizing = false;
-        }
-
-        match result {
-            Ok(user) => {
-                let _ = app_handle.emit(AUTH_EVENT_SUCCESS, user);
-            }
-            Err(message) => {
-                let _ = app_handle.emit(AUTH_EVENT_ERROR, message);
-            }
-        }
-    });
-
-    Ok(AuthLaunch {
-        authorize_url,
-        redirect_uri,
-    })
-}
-
-fn complete_browser_flow(
-    app: &AppHandle,
-    listener: TcpListener,
-    config: &OAuthConfig,
-    redirect_uri: &str,
-    expected_state: &str,
-    code_verifier: &str,
-) -> Result<AuthenticatedUser, String> {
-    let started = Instant::now();
-    let mut stream = None;
-
-    while started.elapsed() < AUTH_ACCEPT_TIMEOUT {
-        match listener.accept() {
-            Ok((accepted_stream, _)) => {
-                stream = Some(accepted_stream);
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(AUTH_POLL_INTERVAL);
-            }
-            Err(error) => {
-                return Err(format!("OAuth callback was not received: {error}"));
-            }
-        }
-    }
-
-    let mut stream = stream.ok_or_else(|| {
-        "SoundCloud sign-in timed out before the browser returned to the desktop app.".to_string()
-    })?;
-
-    stream
-        .set_read_timeout(Some(Duration::from_secs(30)))
-        .map_err(|error| error.to_string())?;
-
-    let request_target = read_callback_request_target(&mut stream)?;
-    let callback_url = Url::parse(&format!("http://127.0.0.1{request_target}"))
-        .map_err(|error| format!("Could not parse callback URL: {error}"))?;
-
-    let mut code = None;
-    let mut returned_state = None;
-    let mut error_message = None;
-
-    for (key, value) in callback_url.query_pairs() {
-        match key.as_ref() {
-            "code" => code = Some(value.to_string()),
-            "state" => returned_state = Some(value.to_string()),
-            "error" => error_message = Some(value.to_string()),
-            _ => {}
-        }
-    }
-
-    if let Some(error) = error_message {
-        write_browser_response(
-            &mut stream,
-            "SoundunCloud sign-in failed. You can close this tab and return to the app.",
-        )?;
-        return Err(format!("SoundCloud returned an error: {error}."));
-    }
-
-    if returned_state.as_deref() != Some(expected_state) {
-        write_browser_response(
-            &mut stream,
-            "SoundunCloud could not verify the sign-in request. You can close this tab.",
-        )?;
-        return Err("OAuth state verification failed.".into());
-    }
-
-    let auth_code =
-        code.ok_or_else(|| "SoundCloud did not return an authorization code.".to_string())?;
-    let client = http_client(Duration::from_secs(30))?;
-
-    let token = exchange_code_for_token(&client, config, redirect_uri, code_verifier, &auth_code)?;
-    let user = fetch_authenticated_user(&client, &token.access_token)?;
-    save_session_file(
-        app,
-        PersistedSession {
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
-            expires_at: current_epoch_seconds().saturating_add(token.expires_in),
-            user: user.clone(),
-        },
-    )?;
-
-    write_browser_response(
-        &mut stream,
-        "SoundunCloud sign-in is complete. You can close this browser tab and return to the app.",
-    )?;
-
-    Ok(user)
-}
-
-fn read_callback_request_target(stream: &mut TcpStream) -> Result<String, String> {
-    let mut buffer = [0_u8; 8192];
-    let bytes_read = stream
-        .read(&mut buffer)
-        .map_err(|error| format!("Could not read OAuth callback: {error}"))?;
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let request_line = request
-        .lines()
-        .next()
-        .ok_or_else(|| "OAuth callback request was empty.".to_string())?;
-
-    request_line
-        .split_whitespace()
-        .nth(1)
-        .map(str::to_string)
-        .ok_or_else(|| "OAuth callback request line was invalid.".to_string())
-}
-
-fn exchange_code_for_token(
-    client: &Client,
-    config: &OAuthConfig,
-    redirect_uri: &str,
-    code_verifier: &str,
-    code: &str,
-) -> Result<OAuthTokenResponse, String> {
-    client
-        .post("https://secure.soundcloud.com/oauth/token")
-        .header("accept", "application/json; charset=utf-8")
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("client_id", config.client_id.as_str()),
-            ("client_secret", config.client_secret.as_str()),
-            ("redirect_uri", redirect_uri),
-            ("code_verifier", code_verifier),
-            ("code", code),
-        ])
-        .send()
-        .map_err(|error| format!("Could not exchange the SoundCloud auth code: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("SoundCloud rejected the auth code exchange: {error}"))?
-        .json::<OAuthTokenResponse>()
-        .map_err(|error| format!("Could not decode the SoundCloud token response: {error}"))
-}
-
-fn refresh_token(
-    client: &Client,
-    config: &OAuthConfig,
-    refresh_token: &str,
-) -> Result<OAuthTokenResponse, String> {
-    client
-        .post("https://secure.soundcloud.com/oauth/token")
-        .header("accept", "application/json; charset=utf-8")
-        .form(&[
-            ("grant_type", "refresh_token"),
-            ("client_id", config.client_id.as_str()),
-            ("client_secret", config.client_secret.as_str()),
-            ("refresh_token", refresh_token),
-        ])
-        .send()
-        .map_err(|error| format!("Could not refresh the SoundCloud session: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("SoundCloud rejected the stored session refresh: {error}"))?
-        .json::<OAuthTokenResponse>()
-        .map_err(|error| format!("Could not decode the refreshed SoundCloud token: {error}"))
+    auth_backend::begin_soundcloud_login(app, runtime)
 }
 
 fn fetch_tracks(
@@ -650,22 +361,6 @@ fn fetch_recent_tracks(
     Ok(resolved)
 }
 
-fn fetch_authenticated_user(
-    client: &Client,
-    access_token: &str,
-) -> Result<AuthenticatedUser, String> {
-    let me = authorized_get_json::<MeResponse>(client, access_token, "/me").map_err(|error| {
-        format!("Could not parse the authenticated SoundCloud profile: {error}")
-    })?;
-
-    Ok(AuthenticatedUser {
-        username: me.username,
-        full_name: me.full_name,
-        permalink_url: me.permalink_url,
-        avatar_url: me.avatar_url,
-    })
-}
-
 fn authorized_get_json<T>(client: &Client, access_token: &str, path: &str) -> Result<T, String>
 where
     T: for<'de> Deserialize<'de>,
@@ -686,138 +381,6 @@ where
         .map_err(|error| format!("SoundCloud rejected the request: {error}"))?
         .json::<T>()
         .map_err(|error| format!("Could not decode the SoundCloud response: {error}"))
-}
-
-fn write_browser_response(stream: &mut TcpStream, message: &str) -> Result<(), String> {
-    let body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>SoundunCloud</title><style>body{{margin:0;font-family:Segoe UI,sans-serif;background:#111315;color:#f3efe7;display:grid;place-items:center;min-height:100vh}}main{{max-width:560px;padding:32px;border:1px solid rgba(255,255,255,.08);border-radius:28px;background:#171b1f;box-shadow:0 20px 60px rgba(0,0,0,.32)}}h1{{margin:0 0 12px;font-size:2rem}}p{{margin:0;color:rgba(243,239,231,.76);line-height:1.7}}</style></head><body><main><h1>SoundunCloud</h1><p>{message}</p></main></body></html>"
-    );
-
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-
-    stream
-        .write_all(response.as_bytes())
-        .map_err(|error| format!("Could not write the browser response: {error}"))
-}
-
-fn load_effective_config(app: &AppHandle) -> Result<ConfigResolution, String> {
-    let local_config = load_local_config_file(app)?;
-    let env_config = load_config_from_env();
-
-    if let Some(local) = local_config {
-        let secret = load_keyring_secret(CONFIG_SECRET_ENTRY)?;
-        return Ok(ConfigResolution {
-            config: secret.map(|client_secret| OAuthConfig {
-                client_id: local.client_id.clone(),
-                client_secret,
-                redirect_port: local.redirect_port,
-            }),
-            config_source: "app-storage".into(),
-            stored_client_id: Some(local.client_id),
-            redirect_port: local.redirect_port,
-        });
-    }
-
-    let redirect_port = env_config
-        .as_ref()
-        .map(|config| config.redirect_port)
-        .unwrap_or(DEFAULT_REDIRECT_PORT);
-
-    Ok(ConfigResolution {
-        config: env_config.clone(),
-        config_source: if env_config.is_some() {
-            "environment".into()
-        } else {
-            "missing".into()
-        },
-        stored_client_id: env_config.map(|config| config.client_id),
-        redirect_port,
-    })
-}
-
-fn load_local_config_file(app: &AppHandle) -> Result<Option<StoredOAuthConfig>, String> {
-    let path = app_file_path(app, CONFIG_FILE_NAME)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-
-    if let Ok(legacy) = serde_json::from_str::<LegacyOAuthConfig>(&raw) {
-        let migrated = StoredOAuthConfig {
-            client_id: legacy.client_id,
-            redirect_port: sanitize_port(legacy.redirect_port),
-        };
-        write_keyring_secret(CONFIG_SECRET_ENTRY, &legacy.client_secret)?;
-        write_json_file(app, CONFIG_FILE_NAME, &migrated)?;
-        return Ok(Some(migrated));
-    }
-
-    let stored =
-        serde_json::from_str::<StoredOAuthConfig>(&raw).map_err(|error| error.to_string())?;
-    Ok(Some(StoredOAuthConfig {
-        client_id: stored.client_id,
-        redirect_port: sanitize_port(stored.redirect_port),
-    }))
-}
-
-fn load_session_file(
-    app: &AppHandle,
-    config: Option<&OAuthConfig>,
-) -> Result<Option<PersistedSession>, String> {
-    let metadata = load_session_metadata(app)?;
-    let Some(metadata) = metadata else {
-        return Ok(None);
-    };
-
-    let secrets = load_session_secrets()?;
-    let Some(secrets) = secrets else {
-        clear_session_state(app)?;
-        return Ok(None);
-    };
-
-    let mut session = PersistedSession {
-        access_token: secrets.access_token,
-        refresh_token: secrets.refresh_token,
-        expires_at: metadata.expires_at,
-        user: metadata.user,
-    };
-
-    let now = current_epoch_seconds();
-    if session.expires_at <= now.saturating_add(REFRESH_GRACE_SECONDS) {
-        let Some(config) = config else {
-            clear_session_state(app)?;
-            return Ok(None);
-        };
-        let Some(stored_refresh_token) = session.refresh_token.clone() else {
-            clear_session_state(app)?;
-            return Ok(None);
-        };
-
-        let client = http_client(Duration::from_secs(30))?;
-        let refreshed = match refresh_token(&client, config, &stored_refresh_token) {
-            Ok(token) => token,
-            Err(_) => {
-                clear_session_state(app)?;
-                return Ok(None);
-            }
-        };
-
-        let user = fetch_authenticated_user(&client, &refreshed.access_token)?;
-        session = PersistedSession {
-            access_token: refreshed.access_token,
-            refresh_token: refreshed.refresh_token.or(Some(stored_refresh_token)),
-            expires_at: now.saturating_add(refreshed.expires_in),
-            user,
-        };
-        save_session_file(app, session.clone())?;
-    }
-
-    Ok(Some(session))
 }
 
 fn load_session_metadata(app: &AppHandle) -> Result<Option<StoredSessionMetadata>, String> {
@@ -877,21 +440,6 @@ fn clear_session_state(app: &AppHandle) -> Result<(), String> {
     delete_keyring_secret(SESSION_SECRET_ENTRY)
 }
 
-fn load_config_from_env() -> Option<OAuthConfig> {
-    let client_id = std::env::var("SOUNDUNCLOUD_CLIENT_ID").ok()?;
-    let client_secret = std::env::var("SOUNDUNCLOUD_CLIENT_SECRET").ok()?;
-    let redirect_port = std::env::var("SOUNDUNCLOUD_REDIRECT_PORT")
-        .ok()
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_REDIRECT_PORT);
-
-    Some(OAuthConfig {
-        client_id,
-        client_secret,
-        redirect_port: sanitize_port(redirect_port),
-    })
-}
-
 fn build_desktop_context(app: &AppHandle) -> DesktopContext {
     let package = app.package_info();
 
@@ -908,36 +456,11 @@ fn build_desktop_context(app: &AppHandle) -> DesktopContext {
     }
 }
 
-fn build_redirect_uri(port: u16) -> String {
-    format!("http://127.0.0.1:{}/callback", sanitize_port(port))
-}
-
-fn sanitize_port(port: u16) -> u16 {
-    if port == 0 {
-        DEFAULT_REDIRECT_PORT
-    } else {
-        port
-    }
-}
-
 fn current_epoch_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-fn random_url_safe(length: usize) -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(length)
-        .map(char::from)
-        .collect()
-}
-
-fn pkce_challenge(code_verifier: &str) -> String {
-    let digest = Sha256::digest(code_verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest)
 }
 
 fn http_client(timeout: Duration) -> Result<Client, String> {
@@ -1021,12 +544,36 @@ where
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            #[cfg(desktop)]
+            {
+                let _ = app.deep_link().register("sounduncloud");
+
+                let app_handle = app.handle().clone();
+                if let Some(urls) = app.deep_link().get_current()? {
+                    auth_backend::handle_deep_link_urls(&app_handle, &urls);
+                }
+
+                let app_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let urls = event.urls().to_vec();
+                    auth_backend::handle_deep_link_urls(&app_handle, &urls);
+                });
+            }
 
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
@@ -1050,8 +597,7 @@ pub fn run() {
             main_window_close,
             main_window_minimize,
             main_window_start_dragging,
-            main_window_toggle_maximize,
-            save_oauth_config
+            main_window_toggle_maximize
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

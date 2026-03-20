@@ -1,0 +1,19 @@
+[package]
+name = "sounduncloud-auth-service"
+version = "0.4.0"
+edition = "2021"
+description = "Backend-assisted SoundCloud OAuth service for SoundunCloud desktop"
+
+[dependencies]
+axum = "0.8"
+base64 = "0.22"
+rand = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2"
+urlencoding = "2"
