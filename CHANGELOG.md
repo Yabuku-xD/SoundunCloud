@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0 - 2026-03-19
+
+- Pivoted the desktop app into a local SoundCloud web-shell mode so users can sign in and use the real SoundCloud site inside the app without hosting any backend
+- Replaced the blocked custom auth gate on the startup surface with direct embedded SoundCloud launching and local on-device web session persistence
+- Reworked the shell around a dedicated top drag chrome, working floating window controls, and a reserved bottom update strip that no longer depends on the old signed-in home layout
+- Removed the whole-window Mica dependency from the main shell path so the app stops depending on the unstable transparent-window auth stage just to get users signed in
+
 ## v0.4.1 - 2026-03-19
 
 - Reworked the auth service into a stateless local-first broker by sealing short-lived sign-in state and desktop tickets instead of keeping pending auth in server memory

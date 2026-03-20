@@ -12,8 +12,6 @@ use std::{
 };
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
-#[cfg(target_os = "windows")]
-use window_vibrancy::apply_mica;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
@@ -578,9 +576,6 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.center();
-
-                let _ = apply_mica(&window, Some(true));
-
                 let _ = window.show();
             }
 

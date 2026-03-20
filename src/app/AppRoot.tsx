@@ -1,58 +1,33 @@
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
+import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
 import {
   ArrowUpRight,
-  AudioLines,
-  Home,
+  ExternalLink,
   LoaderCircle,
   Minus,
-  Pause,
-  Play,
-  Search,
-  SkipBack,
-  SkipForward,
+  RefreshCw,
   Square,
-  UserRound,
   X,
 } from "lucide-react";
-import {
-  type FormEvent,
-  type MouseEvent,
-  useDeferredValue,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from "react";
-import { starterStations } from "../data/catalog";
-import {
-  buildWidgetLoadOptions,
-  buildWidgetSrc,
-  loadSoundCloudWidgetApi,
-} from "../lib/soundcloud";
-import { loadJson, saveJson } from "../lib/storage";
+import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
 import soundCloudLogoWhite from "../assets/soundcloud-logo-white.png";
-import type {
-  AppFeedback,
-  AuthLaunch,
-  PersonalizedHome,
-  PlaybackSnapshot,
-  SoundCloudPlaylist,
-  SoundCloudTrack,
-  SoundunCloudSnapshot,
-} from "../types";
 
 const windowHandle = getCurrentWebviewWindow();
 
-const STORAGE_KEYS = {
-  recentTrackUrns: "sounduncloud:recent-track-urns",
-} as const;
+const SOUNDCLOUD_WEBVIEW_LABEL = "soundcloud-shell";
+const SOUNDCLOUD_HOME_URL = "https://soundcloud.com";
+const SHELL_PADDING = 18;
+const CHROME_HEIGHT = 72;
+const FOOTER_HEIGHT = 64;
+const MIN_WEBVIEW_HEIGHT = 360;
+const MIN_WEBVIEW_WIDTH = 640;
 
 type AvailableUpdate = Exclude<Awaited<ReturnType<typeof check>>, null>;
-type ResourceKind = "track" | "playlist" | "profile";
-type ResourceSource = "feed" | "liked" | "recent" | "playlist" | "starter";
+type ShellPhase = "launching" | "ready" | "error";
 
 type UpdateFabState =
   | { kind: "idle" }
@@ -63,82 +38,116 @@ type UpdateFabState =
   | { kind: "current" }
   | { kind: "error"; detail?: string };
 
-type HomeResource = {
-  id: string;
-  urn?: string;
-  title: string;
-  subtitle: string;
-  caption: string;
-  url: string;
-  artworkUrl?: string | null;
-  badges: string[];
-  kind: ResourceKind;
-  source: ResourceSource;
-};
-
-const initialPlaybackSnapshot: PlaybackSnapshot = {
-  title: "SoundunCloud",
-  author: "Sign in to listen",
-  durationMs: 0,
-  positionMs: 0,
-};
-
 function AppRoot() {
-  const [snapshot, setSnapshot] = useState<SoundunCloudSnapshot | null>(null);
-  const [home, setHome] = useState<PersonalizedHome | null>(null);
-  const [query, setQuery] = useState("");
-  const [feedback, setFeedback] = useState<AppFeedback | null>(null);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
-  const [isLoadingHome, setIsLoadingHome] = useState(false);
-  const [isWidgetApiReady, setIsWidgetApiReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [shellPhase, setShellPhase] = useState<ShellPhase>("launching");
+  const [shellError, setShellError] = useState<string | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
   const [updateFabState, setUpdateFabState] = useState<UpdateFabState>({
     kind: "idle",
   });
-  const [playbackSnapshot, setPlaybackSnapshot] = useState<PlaybackSnapshot>(
-    initialPlaybackSnapshot,
-  );
-  const [recentTrackUrns, setRecentTrackUrns] = useState<string[]>(() =>
-    loadJson<string[]>(STORAGE_KEYS.recentTrackUrns, []),
-  );
-  const [selectedResource, setSelectedResource] = useState<HomeResource>(() =>
-    starterStationToResource(starterStations[0]),
-  );
 
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const widgetRef = useRef<SoundCloudWidget | null>(null);
-  const widgetBoundRef = useRef(false);
-  const loadedUrlRef = useRef("");
-  const activeUrnRef = useRef<string | undefined>(selectedResource.urn);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const isCheckingUpdates = updateFabState.kind === "checking";
   const isInstallingUpdate = updateFabState.kind === "installing";
 
-  const handleShellPointerDown = (event: MouseEvent<HTMLDivElement>) => {
+  const handleChromePointerDown = (event: MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
 
-    if (target.closest("button, input, a, iframe, [data-no-drag]")) {
+    if (target.closest("button, input, a, [data-no-drag]")) {
       return;
     }
 
     void invoke("main_window_start_dragging");
   };
 
-  const refreshSnapshot = useEffectEvent(async () => {
-    try {
-      const nextSnapshot = await invoke<SoundunCloudSnapshot>(
-        "load_sounduncloud_snapshot",
-      );
-      setSnapshot(nextSnapshot);
-      if (!nextSnapshot.hasLocalSession) {
-        setHome(null);
-      }
-    } catch {
-      setSnapshot(null);
-      setHome(null);
+  const syncShellWebviewBounds = useEffectEvent(async () => {
+    const shellWebview = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+    if (!shellWebview) {
+      return;
     }
+
+    const [innerSize, scaleFactor] = await Promise.all([
+      windowHandle.innerSize(),
+      windowHandle.scaleFactor(),
+    ]);
+
+    const width = Math.max(
+      MIN_WEBVIEW_WIDTH,
+      innerSize.width / scaleFactor - SHELL_PADDING * 2,
+    );
+    const height = Math.max(
+      MIN_WEBVIEW_HEIGHT,
+      innerSize.height / scaleFactor - CHROME_HEIGHT - FOOTER_HEIGHT,
+    );
+
+    await Promise.all([
+      shellWebview.setPosition(new LogicalPosition(SHELL_PADDING, CHROME_HEIGHT)),
+      shellWebview.setSize(new LogicalSize(width, height)),
+    ]);
+  });
+
+  const ensureShellWebview = useEffectEvent(async () => {
+    setShellPhase("launching");
+    setShellError(null);
+
+    const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+    if (existing) {
+      await syncShellWebviewBounds();
+      await existing.show();
+      await existing.setFocus();
+      setShellPhase("ready");
+      return;
+    }
+
+    const [innerSize, scaleFactor] = await Promise.all([
+      windowHandle.innerSize(),
+      windowHandle.scaleFactor(),
+    ]);
+
+    const width = Math.max(
+      MIN_WEBVIEW_WIDTH,
+      innerSize.width / scaleFactor - SHELL_PADDING * 2,
+    );
+    const height = Math.max(
+      MIN_WEBVIEW_HEIGHT,
+      innerSize.height / scaleFactor - CHROME_HEIGHT - FOOTER_HEIGHT,
+    );
+
+    const shellWebview = new Webview(windowHandle, SOUNDCLOUD_WEBVIEW_LABEL, {
+      url: SOUNDCLOUD_HOME_URL,
+      x: SHELL_PADDING,
+      y: CHROME_HEIGHT,
+      width,
+      height,
+      focus: true,
+      dataDirectory: "soundcloud-web-shell",
+      backgroundColor: "#050506",
+      zoomHotkeysEnabled: true,
+    });
+
+    void shellWebview.once("tauri://created", () => {
+      setShellPhase("ready");
+      setShellError(null);
+      void syncShellWebviewBounds();
+    });
+
+    void shellWebview.once("tauri://error", (event) => {
+      setShellPhase("error");
+      setShellError(
+        formatUnknownError(
+          event.payload,
+          "SoundunCloud could not launch the embedded SoundCloud shell.",
+        ),
+      );
+    });
+  });
+
+  const recreateShellWebview = useEffectEvent(async () => {
+    const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+    if (existing) {
+      await existing.close();
+    }
+
+    await ensureShellWebview();
   });
 
   const checkForUpdates = useEffectEvent(async () => {
@@ -152,6 +161,7 @@ function AppRoot() {
           window.setTimeout(() => resolve(null), 4500);
         }),
       ]);
+
       if (update) {
         setAvailableUpdate(update);
         setUpdateFabState({
@@ -173,311 +183,6 @@ function AppRoot() {
       });
     }
   });
-
-  const syncCurrentSound = useEffectEvent(() => {
-    if (!widgetRef.current) {
-      return;
-    }
-
-    widgetRef.current.getCurrentSound((sound) => {
-      if (!sound) {
-        return;
-      }
-
-      setPlaybackSnapshot((current) => ({
-        ...current,
-        title: sound.title || current.title,
-        author: sound.user?.username || current.author,
-        artworkUrl: sound.artwork_url || current.artworkUrl,
-        urn: activeUrnRef.current,
-      }));
-    });
-
-    widgetRef.current.getDuration((duration) => {
-      setPlaybackSnapshot((current) => ({
-        ...current,
-        durationMs: duration || current.durationMs,
-      }));
-    });
-  });
-
-  const refreshHome = useEffectEvent(async () => {
-    if (!snapshot?.hasLocalSession) {
-      setHome(null);
-      setIsLoadingHome(false);
-      return;
-    }
-
-    setIsLoadingHome(true);
-
-    try {
-      const nextHome = await invoke<PersonalizedHome>("load_personalized_home", {
-        recentTrackUrns,
-      });
-      setHome(nextHome);
-
-      if (selectedResource.source === "starter" && nextHome.featuredTrack) {
-        setSelectedResource(trackToResource(nextHome.featuredTrack, "feed"));
-      }
-    } catch (error) {
-      setHome(null);
-      setFeedback({
-        tone: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "SoundunCloud could not load your personalized home right now.",
-      });
-    } finally {
-      setIsLoadingHome(false);
-    }
-  });
-
-  useEffect(() => {
-    void windowHandle.center();
-    void refreshSnapshot();
-
-    let cancelled = false;
-
-    void loadSoundCloudWidgetApi()
-      .then(() => {
-        if (!cancelled) {
-          setIsWidgetApiReady(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFeedback({
-            tone: "error",
-            message:
-              "The SoundCloud player bridge did not load. Try relaunching the app.",
-          });
-        }
-      });
-
-    const unlistenSuccess = windowHandle.listen("sounduncloud://auth-success", () => {
-      if (cancelled) {
-        return;
-      }
-
-      setIsAuthorizing(false);
-      setFeedback({
-        tone: "success",
-        message: "Signed in with SoundCloud. Your home is ready.",
-      });
-      void refreshSnapshot();
-    });
-
-    const unlistenError = windowHandle.listen<string>(
-      "sounduncloud://auth-error",
-      (event) => {
-        if (cancelled) {
-          return;
-        }
-
-        setIsAuthorizing(false);
-        setFeedback({
-          tone: "error",
-          message: event.payload,
-        });
-      },
-    );
-
-    return () => {
-      cancelled = true;
-      void unlistenSuccess.then((stop) => stop());
-      void unlistenError.then((stop) => stop());
-    };
-  }, [refreshSnapshot]);
-
-  useEffect(() => {
-    saveJson(STORAGE_KEYS.recentTrackUrns, recentTrackUrns);
-  }, [recentTrackUrns]);
-
-  useEffect(() => {
-    if (!snapshot?.hasLocalSession) {
-      return;
-    }
-
-    void refreshHome();
-  }, [recentTrackUrns, refreshHome, snapshot?.hasLocalSession]);
-
-  useEffect(() => {
-    if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setUpdateFabState((current) =>
-        current.kind === updateFabState.kind ? { kind: "idle" } : current,
-      );
-    }, 2400);
-
-    return () => window.clearTimeout(timer);
-  }, [updateFabState]);
-
-  useEffect(() => {
-    if (!isWidgetApiReady || !iframeRef.current || widgetRef.current) {
-      return;
-    }
-
-    widgetRef.current = window.SC.Widget(iframeRef.current);
-
-    if (widgetBoundRef.current) {
-      return;
-    }
-
-    widgetBoundRef.current = true;
-
-    widgetRef.current.bind(window.SC.Widget.Events.READY, () => {
-      syncCurrentSound();
-    });
-
-    widgetRef.current.bind(window.SC.Widget.Events.PLAY, () => {
-      setIsPlaying(true);
-      syncCurrentSound();
-
-      if (!activeUrnRef.current) {
-        return;
-      }
-
-      setRecentTrackUrns((current) => {
-        const next = [activeUrnRef.current!, ...current.filter((urn) => urn !== activeUrnRef.current)];
-        return next.slice(0, 16);
-      });
-    });
-
-    widgetRef.current.bind(window.SC.Widget.Events.PAUSE, () => {
-      setIsPlaying(false);
-      syncCurrentSound();
-    });
-
-    widgetRef.current.bind(
-      window.SC.Widget.Events.PLAY_PROGRESS,
-      (payload: { currentPosition: number }) => {
-        setPlaybackSnapshot((current) => ({
-          ...current,
-          positionMs: payload.currentPosition,
-          urn: activeUrnRef.current,
-        }));
-      },
-    );
-
-    widgetRef.current.bind(window.SC.Widget.Events.FINISH, () => {
-      setIsPlaying(false);
-      playAdjacent(1);
-    });
-  }, [isWidgetApiReady, syncCurrentSound]);
-
-  useEffect(() => {
-    activeUrnRef.current = selectedResource.urn;
-
-    if (!widgetRef.current || !selectedResource.url) {
-      return;
-    }
-
-    if (loadedUrlRef.current === selectedResource.url) {
-      widgetRef.current.play();
-      return;
-    }
-
-    loadedUrlRef.current = selectedResource.url;
-    widgetRef.current.load(selectedResource.url, buildWidgetLoadOptions(true));
-    setPlaybackSnapshot((current) => ({
-      ...current,
-      title: selectedResource.title,
-      author: selectedResource.subtitle,
-      artworkUrl: selectedResource.artworkUrl ?? current.artworkUrl,
-      positionMs: 0,
-      durationMs: current.durationMs,
-      urn: selectedResource.urn,
-    }));
-  }, [selectedResource]);
-
-  const starterResources = starterStations.map(starterStationToResource);
-  const featuredTrack = home?.featuredTrack ?? null;
-  const feedTracks = dedupeTracks(home?.feedTracks ?? []);
-  const likedTracks = dedupeTracks(home?.likedTracks ?? []);
-  const recentTracks = dedupeTracks(home?.recentTracks ?? []);
-  const playlists = home?.playlists ?? [];
-  const playbackQueue = dedupeTracks([...recentTracks, ...feedTracks, ...likedTracks]);
-  const searchMatcher = buildMatcher(deferredQuery);
-  const filteredFeaturedTrack =
-    featuredTrack && searchMatcher([featuredTrack.title, featuredTrack.user?.username ?? ""])
-      ? featuredTrack
-      : !deferredQuery
-        ? featuredTrack
-        : null;
-
-  const filteredFeedResources = feedTracks
-    .filter((track) =>
-      searchMatcher([track.title, track.user?.username ?? "", "feed"]),
-    )
-    .map((track) => trackToResource(track, "feed"));
-
-  const filteredLikedResources = likedTracks
-    .filter((track) =>
-      searchMatcher([track.title, track.user?.username ?? "", "liked"]),
-    )
-    .map((track) => trackToResource(track, "liked"));
-
-  const filteredRecentResources = recentTracks
-    .filter((track) =>
-      searchMatcher([track.title, track.user?.username ?? "", "recent"]),
-    )
-    .map((track) => trackToResource(track, "recent"));
-
-  const filteredPlaylistResources = playlists
-    .filter((playlist) =>
-      searchMatcher([playlist.title, playlist.user?.username ?? "", "playlist"]),
-    )
-    .map(playlistToResource);
-
-  const filteredStarterResources = starterResources.filter((resource) =>
-    searchMatcher([resource.title, resource.subtitle, ...resource.badges]),
-  );
-
-  const emptyHome =
-    !isLoadingHome &&
-    filteredFeedResources.length === 0 &&
-    filteredLikedResources.length === 0 &&
-    filteredRecentResources.length === 0 &&
-    filteredPlaylistResources.length === 0;
-
-  const viewerName =
-    home?.viewer.fullName || home?.viewer.username || "there";
-
-  const handleBeginLogin = async () => {
-    if (!snapshot?.oauthConfigured) {
-      setFeedback({
-        tone: "error",
-        message:
-          "This install is missing the SoundunCloud auth service configuration, so browser sign-in cannot start yet.",
-      });
-      return;
-    }
-
-    setIsAuthorizing(true);
-
-    try {
-      const authLaunch = await invoke<AuthLaunch>("begin_soundcloud_login");
-      await openUrl(authLaunch.authorizeUrl);
-      setFeedback({
-        tone: "info",
-        message:
-          "SoundCloud opened in your browser. Approve access there once and SoundunCloud will keep this device signed in automatically.",
-      });
-    } catch (error) {
-      setIsAuthorizing(false);
-      setFeedback({
-        tone: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Could not start the SoundCloud sign-in flow.",
-      });
-    }
-  };
 
   const handleInstallUpdate = async () => {
     if (!availableUpdate) {
@@ -537,78 +242,49 @@ function AppRoot() {
     await checkForUpdates();
   };
 
-  const handleSignOut = async () => {
-    await invoke("clear_local_session");
-    setHome(null);
-    setQuery("");
-    setFeedback({
-      tone: "info",
-      message: "Signed out of SoundunCloud on this device.",
+  const handleOpenInBrowser = async () => {
+    await openUrl(SOUNDCLOUD_HOME_URL);
+  };
+
+  useEffect(() => {
+    void windowHandle.center();
+    void ensureShellWebview();
+
+    let cancelled = false;
+
+    const resizeListener = windowHandle.onResized(() => {
+      if (!cancelled) {
+        void syncShellWebviewBounds();
+      }
     });
-    await refreshSnapshot();
-  };
 
-  const handlePlayResource = (resource: HomeResource) => {
-    setSelectedResource(resource);
-  };
+    const scaleListener = windowHandle.onScaleChanged(() => {
+      if (!cancelled) {
+        void syncShellWebviewBounds();
+      }
+    });
 
-  const playAdjacent = (direction: -1 | 1) => {
-    if (playbackQueue.length === 0 || !selectedResource.urn) {
+    return () => {
+      cancelled = true;
+      void resizeListener.then((unlisten) => unlisten());
+      void scaleListener.then((unlisten) => unlisten());
+    };
+  }, [ensureShellWebview, syncShellWebviewBounds]);
+
+  useEffect(() => {
+    if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
       return;
     }
 
-    const currentIndex = playbackQueue.findIndex(
-      (track) => track.urn === selectedResource.urn,
-    );
+    const timer = window.setTimeout(() => {
+      setUpdateFabState((current) =>
+        current.kind === updateFabState.kind ? { kind: "idle" } : current,
+      );
+    }, 2400);
 
-    if (currentIndex === -1) {
-      return;
-    }
+    return () => window.clearTimeout(timer);
+  }, [updateFabState]);
 
-    const nextTrack =
-      playbackQueue[(currentIndex + direction + playbackQueue.length) % playbackQueue.length];
-
-    setSelectedResource(trackToResource(nextTrack, "feed"));
-  };
-
-  const handleTogglePlayback = () => {
-    if (!widgetRef.current) {
-      return;
-    }
-
-    if (isPlaying) {
-      widgetRef.current.pause();
-      return;
-    }
-
-    widgetRef.current.play();
-  };
-
-  const handleSearchSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!query.trim()) {
-      return;
-    }
-
-    await openUrl(
-      `https://soundcloud.com/search?q=${encodeURIComponent(query.trim())}`,
-    );
-  };
-
-  if (!snapshot) {
-    return (
-      <div className="app-state">
-        <div className="app-state__mark">
-          <AudioLines size={22} />
-        </div>
-        <p className="app-state__eyebrow">Launching SoundunCloud</p>
-        <h1>Preparing your desktop shell.</h1>
-      </div>
-    );
-  }
-
-  const signedIn = snapshot.hasLocalSession;
   const updateFabLabel = buildUpdateFabLabel(updateFabState);
   const updateFabTitle = buildUpdateFabTitle(updateFabState);
   const updateFabToneClass =
@@ -621,345 +297,137 @@ function AppRoot() {
           : "";
 
   return (
-    <div
-      className={`shell ${signedIn ? "shell--signed-in" : "shell--gate"}`}
-      onMouseDown={handleShellPointerDown}
-    >
-      <WindowControls />
+    <div className="shell">
+      <div className="shell__ambient" />
 
-      {feedback ? (
-        <p
-          className={`feedback feedback--${feedback.tone}`}
-          role={feedback.tone === "error" ? "alert" : "status"}
-          aria-live="polite"
-        >
-          {feedback.message}
-        </p>
-      ) : null}
+      <header className="chrome" onMouseDown={handleChromePointerDown}>
+        <div className="chrome__bar">
+          <div className="chrome__brand">
+            <img alt="SoundCloud" className="chrome__logo" src={soundCloudLogoWhite} />
+            <div className="chrome__copy">
+              <strong>SoundunCloud</strong>
+              <span>Local SoundCloud web shell</span>
+            </div>
+          </div>
 
-      {!signedIn ? (
-        <SignedOutGate
-          canSignIn={snapshot.oauthConfigured}
-          isAuthorizing={isAuthorizing}
-          onBeginLogin={handleBeginLogin}
-          readyHint="Sign in once in your browser. SoundunCloud keeps your session securely on this device."
-          unavailableReason={
-            snapshot.oauthConfigured
-              ? null
-              : "This install does not have the SoundunCloud auth service configured yet, so browser sign-in cannot start."
-          }
-        />
-      ) : (
-        <main className="signed-in-shell">
-          <aside className="rail panel">
-            <button className="rail__brand" type="button">
-              <span className="rail__brand-mark">
-                <AudioLines size={18} />
-              </span>
-              <span>
-                <strong>SoundunCloud</strong>
-                <small>Desktop</small>
-              </span>
+          <div className="chrome__actions" data-no-drag>
+            <button
+              className="utility-chip"
+              onClick={() => void recreateShellWebview()}
+              type="button"
+            >
+              <RefreshCw size={13} />
+              <span>Reload</span>
             </button>
-
-            <nav className="rail__nav" aria-label="Primary">
-              <button className="rail__nav-item rail__nav-item--active" type="button">
-                <Home size={16} />
-                <span>Home</span>
-              </button>
-              <button
-                className="rail__nav-item"
-                type="button"
-                onClick={() => searchInputRef.current?.focus()}
-              >
-                <Search size={16} />
-                <span>Search</span>
-              </button>
-              <button
-                className="rail__nav-item"
-                type="button"
-                onClick={() =>
-                  home?.viewer.permalinkUrl ? openUrl(home.viewer.permalinkUrl) : undefined
-                }
-              >
-                <UserRound size={16} />
-                <span>Profile</span>
-              </button>
-            </nav>
-
-            <div className="rail__viewer">
-              <p className="rail__label">Signed in</p>
-              <strong>{viewerName}</strong>
-              <span>@{home?.viewer.username}</span>
-            </div>
-
-            <button className="rail__signout" type="button" onClick={handleSignOut}>
-              Sign out
+            <button
+              className="utility-chip"
+              onClick={() => void handleOpenInBrowser()}
+              type="button"
+            >
+              <ExternalLink size={13} />
+              <span>Browser</span>
             </button>
-          </aside>
+            <WindowControls />
+          </div>
+        </div>
+      </header>
 
-          <section className="content">
-            <header className="content__header">
-              <div>
-                <p className="content__eyebrow">Personalized home</p>
-                <h1>{buildGreeting(viewerName)}</h1>
-              </div>
-
-              <div className="content__controls">
-                <form className="searchbar" onSubmit={handleSearchSubmit} role="search">
-                  <Search size={18} />
-                  <input
-                    ref={searchInputRef}
-                    aria-label="Search your home"
-                    placeholder="Search your feed, likes, recents, or jump to SoundCloud"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                  />
-                  <button className="searchbar__submit" type="submit">
-                    Open web
-                  </button>
-                </form>
-              </div>
-            </header>
-
-            <section className="hero panel">
-              <div className="hero__copy">
-                <p className="content__eyebrow">For this session</p>
-                <h2>
-                  {filteredFeaturedTrack
-                    ? filteredFeaturedTrack.title
-                    : "A quieter SoundCloud desktop, built around your account."}
-                </h2>
-                <p>
-                  {filteredFeaturedTrack
-                    ? `Start with ${filteredFeaturedTrack.user?.username ?? "your feed"} and keep the rest of the app out of the way.`
-                    : "Sign in once, then come back to your own feed, likes, playlists, and recent plays without the browser clutter."}
-                </p>
-                <div className="hero__actions">
-                  {filteredFeaturedTrack ? (
-                    <button
-                      className="button button--primary"
-                      type="button"
-                      onClick={() =>
-                        handlePlayResource(trackToResource(filteredFeaturedTrack, "feed"))
-                      }
-                    >
-                      <Play size={16} />
-                      Play featured
-                    </button>
-                  ) : null}
-                  <button
-                    className="button button--ghost"
-                    type="button"
-                    onClick={() =>
-                      home?.viewer.permalinkUrl ? openUrl(home.viewer.permalinkUrl) : undefined
-                    }
-                  >
-                    <ArrowUpRight size={16} />
-                    Open profile
-                  </button>
-                </div>
-              </div>
-
-              <div className="hero__highlight">
-                <Artwork
-                  alt={selectedResource.title}
-                  className="hero__artwork"
-                  src={selectedResource.artworkUrl}
-                />
-                <div className="hero__meta">
-                  <p className="content__eyebrow">Now playing</p>
-                  <h3>{playbackSnapshot.title}</h3>
-                  <span>{playbackSnapshot.author}</span>
-                </div>
-              </div>
-            </section>
-
-            {isLoadingHome ? (
-              <div className="section-empty panel">
-                <LoaderCircle className="spin" size={18} />
-                <p>Loading your SoundCloud home…</p>
-              </div>
-            ) : null}
-
-            {!isLoadingHome && emptyHome ? (
-              <div className="section-empty panel">
-                <p>{deferredQuery ? "No matches in your home yet." : "This account does not have enough data to build a home yet."}</p>
-                <button
-                  className="button button--ghost"
-                  type="button"
-                  onClick={() => openUrl("https://soundcloud.com")}
-                >
-                  <ArrowUpRight size={16} />
-                  Open SoundCloud
-                </button>
-              </div>
-            ) : null}
-
-            {filteredRecentResources.length > 0 ? (
-              <ResourceShelf
-                items={filteredRecentResources}
-                title="Recent plays"
-                onPlay={handlePlayResource}
-              />
-            ) : null}
-
-            {filteredLikedResources.length > 0 ? (
-              <ResourceShelf
-                items={filteredLikedResources}
-                title="Liked tracks"
-                onPlay={handlePlayResource}
-              />
-            ) : null}
-
-            {filteredFeedResources.length > 0 ? (
-              <ResourceShelf
-                items={filteredFeedResources}
-                title="From your feed"
-                onPlay={handlePlayResource}
-              />
-            ) : null}
-
-            {filteredPlaylistResources.length > 0 ? (
-              <ResourceShelf
-                items={filteredPlaylistResources}
-                title="Your playlists"
-                onPlay={handlePlayResource}
-              />
-            ) : null}
-
-            {!deferredQuery && emptyHome ? (
-              <ResourceShelf
-                items={filteredStarterResources}
-                title="Starter stations"
-                onPlay={handlePlayResource}
-              />
-            ) : null}
-          </section>
-
-          <footer className="player-dock panel">
-            <div className="player-dock__now">
-              <Artwork
-                alt={playbackSnapshot.title}
-                className="player-dock__artwork"
-                src={playbackSnapshot.artworkUrl}
-              />
-              <div>
-                <strong>{playbackSnapshot.title}</strong>
-                <span>{playbackSnapshot.author}</span>
-              </div>
-            </div>
-
-            <div className="player-dock__transport">
-              <button className="player-button" type="button" onClick={() => playAdjacent(-1)}>
-                <SkipBack size={16} />
-              </button>
-              <button className="player-button player-button--primary" type="button" onClick={handleTogglePlayback}>
-                {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-              </button>
-              <button className="player-button" type="button" onClick={() => playAdjacent(1)}>
-                <SkipForward size={16} />
-              </button>
-            </div>
-
-            <div className="player-dock__meta">
-              <span>{formatDuration(playbackSnapshot.positionMs)}</span>
-              <div className="player-dock__progress">
-                <span
-                  style={{
-                    width: `${
-                      playbackSnapshot.durationMs
-                        ? (playbackSnapshot.positionMs / playbackSnapshot.durationMs) * 100
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-              <span>{formatDuration(playbackSnapshot.durationMs)}</span>
-            </div>
-          </footer>
-
-          <iframe
-            ref={iframeRef}
-            allow="autoplay"
-            className="widget-frame"
-            src={buildWidgetSrc(selectedResource.url)}
-            title="SoundCloud widget"
+      <main className="viewport">
+        {shellPhase !== "ready" ? (
+          <LaunchOverlay
+            detail={
+              shellPhase === "error"
+                ? shellError ??
+                  "SoundunCloud could not launch the embedded SoundCloud shell."
+                : "No hosting required. SoundCloud opens inside the app and keeps its web session on this device."
+            }
+            isError={shellPhase === "error"}
+            onOpenInBrowser={handleOpenInBrowser}
+            onRetry={recreateShellWebview}
           />
-        </main>
-      )}
+        ) : null}
+      </main>
 
-      <button
-        aria-live="polite"
-        className={`update-fab ${signedIn ? "update-fab--signed-in" : ""} ${updateFabToneClass}`}
-        data-no-drag
-        disabled={isCheckingUpdates || isInstallingUpdate}
-        onClick={() => void handleUpdateAction()}
-        title={updateFabTitle}
-        type="button"
-      >
-        {isCheckingUpdates || isInstallingUpdate ? (
-          <LoaderCircle className="spin" size={11} />
-        ) : (
-          <ArrowUpRight size={11} />
-        )}
-        <span>{updateFabLabel}</span>
-      </button>
+      <footer className="footer">
+        <div className="footer__bar">
+          <p className="footer__copy">
+            {shellPhase === "ready"
+              ? "Sign in on the SoundCloud site once and this device stays signed in there."
+              : "Preparing the embedded SoundCloud session."}
+          </p>
+
+          <button
+            aria-live="polite"
+            className={`update-fab ${updateFabToneClass}`}
+            data-no-drag
+            disabled={isCheckingUpdates || isInstallingUpdate}
+            onClick={() => void handleUpdateAction()}
+            title={updateFabTitle}
+            type="button"
+          >
+            {isCheckingUpdates || isInstallingUpdate ? (
+              <LoaderCircle className="spin" size={11} />
+            ) : (
+              <ArrowUpRight size={11} />
+            )}
+            <span>{updateFabLabel}</span>
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
 
-type SignedOutGateProps = {
-  canSignIn: boolean;
-  isAuthorizing: boolean;
-  onBeginLogin: () => void | Promise<void>;
-  readyHint?: string | null;
-  unavailableReason?: string | null;
+type LaunchOverlayProps = {
+  detail: string;
+  isError: boolean;
+  onOpenInBrowser: () => Promise<void>;
+  onRetry: () => Promise<void>;
 };
 
-function SignedOutGate({
-  canSignIn,
-  isAuthorizing,
-  onBeginLogin,
-  readyHint,
-  unavailableReason,
-}: SignedOutGateProps) {
+function LaunchOverlay({
+  detail,
+  isError,
+  onOpenInBrowser,
+  onRetry,
+}: LaunchOverlayProps) {
   return (
-    <main className="gate">
-      <section className="gate__stack" aria-label="Sign in to SoundunCloud">
-        <img
-          alt="SoundCloud"
-          className="gate__logo"
-          src={soundCloudLogoWhite}
-        />
-        <p className="gate__subtitle">Unofficial desktop companion</p>
+    <section className="launch-overlay" aria-live="polite">
+      <div className="launch-overlay__stack">
+        <img alt="SoundCloud" className="launch-overlay__logo" src={soundCloudLogoWhite} />
+        <p className="launch-overlay__eyebrow">
+          {isError ? "Shell launch failed" : "Opening SoundCloud"}
+        </p>
+        <h1>
+          {isError
+            ? "SoundCloud could not load in the desktop shell."
+            : "Your likes, feed, and account stay on the real SoundCloud site."}
+        </h1>
+        <p className="launch-overlay__detail">{detail}</p>
 
-        <button
-          className="button button--primary button--gate"
-          disabled={!canSignIn || isAuthorizing}
-          onClick={() => void onBeginLogin()}
-          title={unavailableReason ?? "Sign in with SoundCloud"}
-          type="button"
-        >
-          {isAuthorizing ? <LoaderCircle className="spin" size={16} /> : null}
-          {isAuthorizing
-            ? "Waiting for SoundCloud"
-            : canSignIn
-              ? "Sign in with SoundCloud"
-              : "SoundCloud sign-in unavailable"}
-        </button>
-
-        {unavailableReason ? (
-          <p className="gate__hint" role="status">
-            {unavailableReason}
-          </p>
-        ) : readyHint ? (
-          <p className="gate__hint" role="status">
-            {readyHint}
-          </p>
-        ) : null}
-      </section>
-    </main>
+        <div className="launch-overlay__actions">
+          {isError ? (
+            <button className="button button--primary" onClick={() => void onRetry()} type="button">
+              <RefreshCw size={15} />
+              Retry inside app
+            </button>
+          ) : (
+            <button className="button button--primary" type="button">
+              <LoaderCircle className="spin" size={15} />
+              Loading SoundCloud
+            </button>
+          )}
+          <button
+            className="button button--ghost"
+            onClick={() => void onOpenInBrowser()}
+            type="button"
+          >
+            <ExternalLink size={15} />
+            Open in browser
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -980,193 +448,42 @@ function WindowControls() {
   };
 
   return (
-    <div className="window-frame">
-      <div className="window-frame__controls" data-no-drag>
-        <button
-          aria-label="Minimize window"
-          className="window-frame__button"
-          data-no-drag
-          onClick={handleMinimize}
-          onMouseDown={(event) => event.stopPropagation()}
-          type="button"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          aria-label="Maximize or restore window"
-          className="window-frame__button"
-          data-no-drag
-          onClick={handleToggleMaximize}
-          onMouseDown={(event) => event.stopPropagation()}
-          type="button"
-        >
-          <Square size={12} />
-        </button>
-        <button
-          aria-label="Close window"
-          className="window-frame__button window-frame__button--danger"
-          data-no-drag
-          onClick={handleClose}
-          onMouseDown={(event) => event.stopPropagation()}
-          type="button"
-        >
-          <X size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-type ResourceShelfProps = {
-  items: HomeResource[];
-  title: string;
-  onPlay: (resource: HomeResource) => void;
-};
-
-function ResourceShelf({ items, title, onPlay }: ResourceShelfProps) {
-  return (
-    <section className="shelf">
-      <div className="shelf__header">
-        <h2>{title}</h2>
-        <span>{items.length}</span>
-      </div>
-      <div className="shelf__track">
-        {items.map((item) => (
-          <button
-            className="media-card panel"
-            key={item.id}
-            onClick={() => onPlay(item)}
-            type="button"
-          >
-            <Artwork alt={item.title} className="media-card__artwork" src={item.artworkUrl} />
-            <div className="media-card__copy">
-              <strong>{item.title}</strong>
-              <span>{item.subtitle}</span>
-              <small>{item.caption}</small>
-            </div>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-type ArtworkProps = {
-  alt: string;
-  className: string;
-  src?: string | null;
-};
-
-function Artwork({ alt, className, src }: ArtworkProps) {
-  if (src) {
-    return <img alt={alt} className={className} src={upgradeArtwork(src)} />;
-  }
-
-  return (
-    <div aria-hidden="true" className={`${className} artwork-fallback`}>
-      <AudioLines size={18} />
+    <div className="window-frame__controls" data-no-drag>
+      <button
+        aria-label="Minimize window"
+        className="window-frame__button"
+        data-no-drag
+        onClick={handleMinimize}
+        onMouseDown={(event) => event.stopPropagation()}
+        type="button"
+      >
+        <Minus size={14} />
+      </button>
+      <button
+        aria-label="Maximize or restore window"
+        className="window-frame__button"
+        data-no-drag
+        onClick={handleToggleMaximize}
+        onMouseDown={(event) => event.stopPropagation()}
+        type="button"
+      >
+        <Square size={12} />
+      </button>
+      <button
+        aria-label="Close window"
+        className="window-frame__button window-frame__button--danger"
+        data-no-drag
+        onClick={handleClose}
+        onMouseDown={(event) => event.stopPropagation()}
+        type="button"
+      >
+        <X size={14} />
+      </button>
     </div>
   );
 }
 
 export default AppRoot;
-
-function trackToResource(track: SoundCloudTrack, source: ResourceSource): HomeResource {
-  return {
-    id: `${source}-${track.urn}`,
-    urn: track.urn,
-    title: track.title,
-    subtitle: track.user?.username ?? "SoundCloud",
-    caption:
-      source === "recent"
-        ? "Played in this desktop app"
-        : source === "liked"
-          ? `${formatCompact(track.playbackCount)} plays`
-          : "From your SoundCloud feed",
-    url: track.permalinkUrl,
-    artworkUrl: track.artworkUrl,
-    badges: [source],
-    kind: "track",
-    source,
-  };
-}
-
-function playlistToResource(playlist: SoundCloudPlaylist): HomeResource {
-  return {
-    id: `playlist-${playlist.urn}`,
-    urn: playlist.urn,
-    title: playlist.title,
-    subtitle: playlist.user?.username ?? "SoundCloud",
-    caption: `${formatCompact(playlist.trackCount)} tracks`,
-    url: playlist.permalinkUrl,
-    artworkUrl: playlist.artworkUrl,
-    badges: ["playlist"],
-    kind: "playlist",
-    source: "playlist",
-  };
-}
-
-function starterStationToResource(station: (typeof starterStations)[number]): HomeResource {
-  return {
-    id: station.id,
-    title: station.title,
-    subtitle: station.subtitle,
-    caption: station.description,
-    url: station.url,
-    artworkUrl: station.thumbnailUrl,
-    badges: station.tags,
-    kind: station.kind,
-    source: "starter",
-  };
-}
-
-function dedupeTracks(tracks: SoundCloudTrack[]) {
-  return Array.from(new Map(tracks.map((track) => [track.urn, track])).values());
-}
-
-function buildMatcher(query: string) {
-  if (!query) {
-    return () => true;
-  }
-
-  return (parts: string[]) => parts.join(" ").toLowerCase().includes(query);
-}
-
-function buildGreeting(name: string) {
-  const hour = new Date().getHours();
-
-  if (hour < 12) {
-    return `Good morning, ${name}`;
-  }
-
-  if (hour < 18) {
-    return `Good afternoon, ${name}`;
-  }
-
-  return `Good evening, ${name}`;
-}
-
-function formatDuration(durationMs: number) {
-  if (!durationMs) {
-    return "0:00";
-  }
-
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function formatCompact(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value || 0);
-}
-
-function upgradeArtwork(url: string) {
-  return url.replace("-large.", "-t500x500.");
-}
 
 function getInstallerUrl(update: AvailableUpdate) {
   const platforms = update.rawJson.platforms;
@@ -1228,7 +545,7 @@ function buildUpdateFabLabel(state: UpdateFabState) {
     case "error":
       return "Try again";
     default:
-      return "Check for updates";
+      return "Check updates";
   }
 }
 
