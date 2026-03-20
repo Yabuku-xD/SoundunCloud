@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.0 - 2026-03-20
+
+- Added the first native SoundunCloud workspace with custom home, likes, playlists, recent tracks, and an embedded player when the optional auth-service mode is configured
+- Fixed startup flow so the desktop app opens SoundCloud directly on launch instead of waiting on the centered gate every time
+- Switched the custom minimize, maximize, and close buttons to Tauri's native window APIs so the frameless chrome behaves correctly again
+
 ## v0.5.2 - 2026-03-20
 
 - Fixed the centered launcher so `Open SoundCloud` reliably creates the embedded shell in the packaged Windows build instead of getting stuck in the loading state
