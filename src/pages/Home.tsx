@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { LikeButton } from '../components/music/LikeButton';
 import { TrackCard } from '../components/music/TrackCard';
+import { AppImage } from '../components/ui/AppImage';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
@@ -57,29 +58,66 @@ function greetingKey() {
 
 /* ── Section Header ───────────────────────────────────────── */
 
+const sectionVisibilityStyle = {
+  contentVisibility: 'auto',
+  containIntrinsicSize: '760px',
+} as const;
+
+function HeroStat({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="surface-panel-muted rounded-[22px] p-4">
+      <div className="flex items-center justify-between">
+        <span className="eyebrow">{label}</span>
+        <span className="text-white/36">{icon}</span>
+      </div>
+      <p className="mt-4 text-[22px] font-bold tracking-[-0.04em] text-white/92">{value}</p>
+    </div>
+  );
+}
+
 function SectionHeader({
+  index,
   title,
   icon,
+  eyebrow,
   onSeeAll,
 }: {
+  index: string;
   title: string;
   icon: React.ReactNode;
+  eyebrow?: string;
   onSeeAll?: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center justify-between mb-5">
-      <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
+    <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <div className="surface-panel-muted mt-0.5 flex h-10 w-10 items-center justify-center rounded-full">
           {icon}
         </div>
-        <h2 className="text-[15px] font-semibold tracking-tight text-white/90">{title}</h2>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="section-index">{index}</span>
+            <span className="eyebrow">{eyebrow ?? 'Collection'}</span>
+          </div>
+          <h2 className="mt-2 text-[22px] font-bold tracking-[-0.03em] text-white/92">
+            {title}
+          </h2>
+        </div>
       </div>
       {onSeeAll && (
         <button
           type="button"
           onClick={onSeeAll}
-          className="flex items-center gap-1 text-[11px] text-white/30 hover:text-white/60 transition-colors duration-200 cursor-pointer"
+          className="flex items-center gap-1 rounded-full border border-white/[0.08] px-3 py-2 text-[11px] font-medium text-white/46 transition-colors duration-200 hover:bg-white/[0.04] hover:text-white/72"
         >
           {t('common.seeAll')}
           <ChevronRight size={12} />
@@ -157,10 +195,14 @@ const FeaturedCard = React.memo(
         {/* Blurred artwork background */}
         {cover && (
           <div className="absolute inset-0 pointer-events-none">
-            <img
+            <AppImage
               src={cover}
               alt=""
-              className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
+              width={500}
+              height={500}
+              priority
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
           </div>
@@ -174,10 +216,14 @@ const FeaturedCard = React.memo(
             onClick={togglePlay}
           >
             {cover ? (
-              <img
+              <AppImage
                 src={cover}
                 alt={track.title}
-                className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
+                width={160}
+                height={160}
+                priority
+                containerClassName="h-full w-full"
+                imgClassName="h-full w-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
@@ -228,10 +274,13 @@ const FeaturedCard = React.memo(
               onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
             >
               {avatar && (
-                <img
+                <AppImage
                   src={avatar}
                   alt=""
-                  className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
+                  width={20}
+                  height={20}
+                  containerClassName="h-5 w-5 rounded-full ring-1 ring-white/[0.08] transition-all duration-150 group-hover/artist:ring-white/[0.15]"
+                  imgClassName="h-full w-full rounded-full object-cover"
                 />
               )}
               <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
@@ -303,7 +352,14 @@ const FeedTrackCard = React.memo(
           onClick={togglePlay}
         >
           {cover ? (
-            <img src={cover} alt={track.title} className="w-full h-full object-cover" />
+            <AppImage
+              src={cover}
+              alt={track.title}
+              width={76}
+              height={76}
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
               {musicIcon22}
@@ -450,7 +506,14 @@ const FeedPlaylistCard = React.memo(
           onClick={handlePlay}
         >
           {cover ? (
-            <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
+            <AppImage
+              src={cover}
+              alt={origin.title}
+              width={76}
+              height={76}
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
               <ListMusic size={22} className="text-white/15" />
@@ -544,7 +607,7 @@ const FeaturedHero = React.memo(function FeaturedHero() {
   if (!featuredItem) return null;
 
   return (
-    <section>
+    <section className="section-frame" style={sectionVisibilityStyle}>
       <FeaturedCard item={featuredItem} queue={feedTrackQueue} />
     </section>
   );
@@ -563,10 +626,12 @@ const FallbackShelf = React.memo(function FallbackShelf() {
   if (hasActivity || (!fallbackLoading && fallbackTracks.length === 0)) return null;
 
   return (
-    <section>
+    <section className="section-frame" style={sectionVisibilityStyle}>
       <SectionHeader
+        index="01"
         title={t('home.startListening', 'Start Listening')}
         icon={<Headphones size={15} className="text-accent" />}
+        eyebrow="Warm Up"
       />
       <HorizontalScroll>
         {fallbackLoading ? (
@@ -591,10 +656,12 @@ const LikedShelf = React.memo(function LikedShelf() {
   if (!isLoading && likedTracks.length === 0) return null;
 
   return (
-    <section>
+    <section className="section-frame" style={sectionVisibilityStyle}>
       <SectionHeader
+        index="02"
         title={t('library.likedTracks')}
         icon={<Heart size={15} className="text-accent" />}
+        eyebrow="Your Picks"
         onSeeAll={() => navigate('/library')}
       />
       <HorizontalScroll>
@@ -620,10 +687,12 @@ const FollowingShelf = React.memo(function FollowingShelf() {
   if (!isLoading && followingTracks.length === 0) return null;
 
   return (
-    <section>
+    <section className="section-frame" style={sectionVisibilityStyle}>
       <SectionHeader
+        index="03"
         title={t('home.freshReleases')}
         icon={<Music size={15} className="text-white/50" />}
+        eyebrow="From Following"
       />
       <HorizontalScroll>
         {isLoading ? (
@@ -663,10 +732,12 @@ const DiscoverSection = React.memo(function DiscoverSection() {
     <>
       {/* Recommended For You */}
       {(isLoading || recommendedTracks.length > 0) && (
-        <section>
+        <section className="section-frame" style={sectionVisibilityStyle}>
           <SectionHeader
+            index="04"
             title={t('home.recommended', 'Recommended For You')}
             icon={<Sparkles size={15} className="text-amber-400/70" />}
+            eyebrow="Suggested"
           />
           <HorizontalScroll>
             {isLoading ? (
@@ -684,10 +755,12 @@ const DiscoverSection = React.memo(function DiscoverSection() {
 
       {/* Discover by genre */}
       {(isLoading || genres.length > 0) && (
-        <section>
+        <section className="section-frame" style={sectionVisibilityStyle}>
           <SectionHeader
+            index="05"
             title={t('home.discover', 'Discover')}
             icon={<Compass size={15} className="text-cyan-400/70" />}
+            eyebrow="Genres"
           />
           <div className="flex items-center gap-1.5 mb-4 flex-wrap">
             {genres.map((g) => (
@@ -739,10 +812,12 @@ const FeedStream = React.memo(function FeedStream() {
   );
 
   return (
-    <section>
+    <section className="section-frame" style={sectionVisibilityStyle}>
       <SectionHeader
+        index="06"
         title={t('home.yourFeed')}
         icon={<Music size={15} className="text-white/50" />}
+        eyebrow="Stream"
       />
 
       {isLoading ? (
@@ -783,14 +858,51 @@ export function Home() {
   const user = useAuthStore((s) => s.user);
 
   return (
-    <div className="p-6 pb-4 space-y-8">
-      {/* Hero Greeting — no data hooks, won't re-render */}
-      <section className="pt-1">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-white/80 to-accent/80 bg-clip-text text-transparent leading-tight pb-1">
-          {t(greetingKey())}
-          {user?.username ? `, ${user.username}` : ''}
-        </h1>
-        <div className="mt-3 h-px bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent" />
+    <div className="space-y-6 px-4 py-4 pb-4 md:px-6">
+      <section className="section-frame overflow-visible pt-7" style={sectionVisibilityStyle}>
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="eyebrow">Daily Session</p>
+            <h1 className="mt-4 max-w-3xl text-[clamp(2.6rem,5vw,4.7rem)] font-bold leading-[0.92] tracking-[-0.05em] text-balance">
+              {t(greetingKey())}
+              {user?.username ? `, ${user.username}` : ''}
+            </h1>
+            <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/52">
+              Your SoundCloud feed, likes, and recommendations are staged into a faster desktop
+              surface with native playback and cleaner navigation.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <span className="command-chip">feed</span>
+              <span className="command-chip">likes</span>
+              <span className="command-chip">discover</span>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+            <HeroStat
+              label="Liked Tracks"
+              value={fc(user?.public_favorites_count ?? 0)}
+              icon={<Heart size={16} />}
+            />
+            <HeroStat
+              label="Following"
+              value={fc(user?.followings_count ?? 0)}
+              icon={<Headphones size={16} />}
+            />
+            <HeroStat
+              label="Uploads"
+              value={fc(user?.track_count ?? 0)}
+              icon={<Music size={16} />}
+            />
+          </div>
+        </div>
+
+        <div className="mt-7 soft-divider" />
+        <div className="mt-5 flex flex-wrap items-center gap-3 text-[12px] text-white/44">
+          <span>Artwork staged with lazy decode below the fold.</span>
+          <span className="hidden h-1 w-1 rounded-full bg-white/22 sm:inline-block" />
+          <span>Queue caching avoids duplicate downloads.</span>
+        </div>
       </section>
 
       {/* Each section is isolated — own hooks, own re-render boundary */}

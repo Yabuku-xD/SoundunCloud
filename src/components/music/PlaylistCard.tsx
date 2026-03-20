@@ -5,6 +5,7 @@ import type { Playlist } from '../../lib/hooks';
 import { Heart, ListMusic, Play, pauseBlack22 } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { AppImage } from '../ui/AppImage';
 
 interface PlaylistCardProps {
   playlist: Playlist;
@@ -60,16 +61,18 @@ export const PlaylistCard = React.memo(
         className="group relative flex flex-col gap-3 cursor-pointer"
         onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
       >
-        <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
+        <div className="relative aspect-square rounded-[26px] overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.24)] group-hover:shadow-[0_22px_60px_rgba(0,0,0,0.3)] group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
           {cover ? (
-            <img
+            <AppImage
               src={cover}
               alt={playlist.title}
-              className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
-              decoding="async"
+              width={300}
+              height={300}
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-transparent">
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-transparent image-shell">
               <ListMusic size={32} className="text-white/10" />
             </div>
           )}
@@ -117,12 +120,12 @@ export const PlaylistCard = React.memo(
         </div>
 
         <div className="min-w-0 px-1">
-          <p className="text-[14px] font-semibold text-white/90 truncate leading-snug group-hover:text-white transition-colors duration-200">
+          <p className="text-[14px] font-semibold text-white/92 truncate leading-snug group-hover:text-white transition-colors duration-200">
             {playlist.title}
           </p>
           {showPlayback ? (
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider bg-white/[0.05] px-1.5 py-0.5 rounded-md">
+              <span className="text-[10px] font-bold text-white/36 uppercase tracking-wider bg-white/[0.05] px-1.5 py-0.5 rounded-md">
                 {playlist.playlist_type || 'Playlist'}
               </span>
               {playlist.likes_count > 0 && (

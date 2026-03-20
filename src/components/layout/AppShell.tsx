@@ -278,13 +278,15 @@ export const AppShell = React.memo(() => {
   }, [navigate, queueOpen, kbOpen]);
 
   return (
-    <div className="flex flex-col h-screen relative overflow-hidden">
+    <div className="flex h-screen flex-col overflow-hidden relative">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.08),transparent_58%)]" />
+      <div className="pointer-events-none absolute inset-y-0 right-0 w-[34vw] bg-[radial-gradient(circle_at_center,rgba(76,173,255,0.08),transparent_70%)]" />
       <CustomBackground />
       <AmbientGlow />
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
         <Sidebar />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
           <StableOutlet />
         </main>
       </div>

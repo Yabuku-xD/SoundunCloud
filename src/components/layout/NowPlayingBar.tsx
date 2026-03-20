@@ -28,6 +28,7 @@ import { useLyricsStore } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { EqualizerPanel } from '../music/EqualizerPanel';
+import { AppImage } from '../ui/AppImage';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
 
@@ -328,22 +329,36 @@ const TrackInfo = React.memo(() => {
 
   if (!currentTrack) {
     return (
-      <div className="flex items-center gap-3.5 w-[280px] min-w-0">
-        <p className="text-[13px] text-white/15">Not playing</p>
+      <div className="flex w-[320px] min-w-0 items-center gap-3.5">
+        <div className="surface-panel-muted flex w-full items-center gap-3 rounded-[24px] px-3 py-3">
+          <div className="h-12 w-12 rounded-[16px] bg-white/[0.04]" />
+          <div className="min-w-0">
+            <p className="eyebrow">Playback</p>
+            <p className="mt-1 text-[13px] font-medium text-white/50">Nothing playing yet</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3.5 w-[280px] min-w-0">
+    <div className="flex w-[320px] min-w-0 items-center gap-3.5">
       <div
-        className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art"
+        className="group/art relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-[18px] shadow-xl shadow-black/40 ring-1 ring-white/[0.06] transition-all duration-200 hover:ring-white/[0.12]"
         onClick={() => artworkPanelApi.open()}
       >
         {artworkSmall ? (
-          <img src={artworkSmall} alt="" className="w-full h-full object-cover" />
+          <AppImage
+            src={artworkSmall}
+            alt=""
+            width={56}
+            height={56}
+            priority
+            containerClassName="h-full w-full"
+            imgClassName="h-full w-full object-cover"
+          />
         ) : (
-          <div className="w-full h-full bg-white/[0.04]" />
+          <div className="h-full w-full bg-white/[0.04]" />
         )}
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 group-hover/art:bg-black/40 group-hover/art:opacity-100 transition-all duration-200">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-white">
@@ -358,7 +373,8 @@ const TrackInfo = React.memo(() => {
         </div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <p className="eyebrow">Now Playing</p>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
           <p
             className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
             onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
@@ -372,7 +388,7 @@ const TrackInfo = React.memo(() => {
           )}
         </div>
         <p
-          className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"
+          className="mt-1 text-[11px] text-white/42 truncate cursor-pointer hover:text-white/62 transition-colors"
           onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
         >
           {currentTrack.user.username}
@@ -409,18 +425,22 @@ const BackgroundGlow = React.memo(() => {
 export const NowPlayingBar = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
     return (
-      <div className="shrink-0 relative">
+      <div className="relative shrink-0 px-2 pb-2">
         <BackgroundGlow />
         {/* Isolated layer — repaints here won't cascade to blur background */}
-        <div className="relative" style={{ isolation: 'isolate' }}>
+        <div
+          className="surface-panel relative overflow-hidden rounded-[30px]"
+          style={{ isolation: 'isolate' }}
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,106,26,0.85),transparent)]" />
           <ProgressSlider />
 
-          <div className="h-[76px] flex items-center px-5 gap-3 relative">
+          <div className="relative flex h-[92px] items-center gap-4 px-5">
             {/* Left: track info */}
             <TrackInfo />
 
             {/* Center: controls */}
-            <div className="flex-1 flex flex-col items-center gap-0.5">
+            <div className="flex flex-1 flex-col items-center gap-1">
               <div className="flex items-center gap-0.5">
                 <ShuffleBtn />
                 <PrevBtn />
@@ -432,7 +452,7 @@ export const NowPlayingBar = React.memo(
             </div>
 
             {/* Right: volume + queue */}
-            <div className="flex items-center gap-0.5 w-[250px] justify-end">
+            <div className="flex w-[250px] items-center justify-end gap-0.5">
               <EqBtn />
               <LyricsBtn />
               <QueueBtn onClick={onQueueToggle} active={queueOpen} />

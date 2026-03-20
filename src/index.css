@@ -1,21 +1,32 @@
+@import "@fontsource/space-grotesk/latin-400.css";
+@import "@fontsource/space-grotesk/latin-500.css";
+@import "@fontsource/space-grotesk/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/cyrillic-400.css";
+@import "@fontsource/ibm-plex-mono/cyrillic-500.css";
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: rgba(10, 10, 12, 0.95);
-  --color-bg-glass: rgba(255, 255, 255, 0.03);
-  --color-bg-glass-hover: rgba(255, 255, 255, 0.06);
-  --color-bg-glass-active: rgba(255, 255, 255, 0.09);
-  --color-border-glass: rgba(255, 255, 255, 0.06);
-  --color-border-glass-hi: rgba(255, 255, 255, 0.12);
+  --color-bg-primary: #07070a;
+  --color-bg-elevated: rgba(18, 18, 24, 0.9);
+  --color-bg-glass: rgba(255, 255, 255, 0.04);
+  --color-bg-glass-hover: rgba(255, 255, 255, 0.08);
+  --color-bg-glass-active: rgba(255, 255, 255, 0.12);
+  --color-border-glass: rgba(255, 255, 255, 0.08);
+  --color-border-glass-hi: rgba(255, 255, 255, 0.16);
   --color-text-primary: rgba(255, 255, 255, 0.92);
-  --color-text-secondary: rgba(255, 255, 255, 0.55);
-  --color-text-tertiary: rgba(255, 255, 255, 0.25);
+  --color-text-secondary: rgba(255, 255, 255, 0.62);
+  --color-text-tertiary: rgba(255, 255, 255, 0.3);
   --color-accent: #ff5500;
-  --color-accent-hover: #ff6a1a;
-  --color-accent-glow: rgba(255, 85, 0, 0.2);
-  --color-accent-selection: rgba(255, 85, 0, 0.3);
+  --color-accent-hover: #ff7433;
+  --color-accent-glow: rgba(255, 106, 26, 0.24);
+  --color-accent-selection: rgba(255, 106, 26, 0.24);
+  --color-cyan-glow: rgba(76, 173, 255, 0.16);
+  --color-panel-shadow: rgba(0, 0, 0, 0.38);
 
-  --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: "Space Grotesk", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Code", monospace;
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -32,7 +43,7 @@ body,
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: transparent;
+  background: var(--color-bg-primary);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -40,47 +51,96 @@ body,
   letter-spacing: -0.01em;
 }
 
-#root {
-  background: rgb(8, 8, 10);
-  overflow: hidden;
+html {
+  color-scheme: dark;
 }
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
+body,
+#root {
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -12%;
+  background:
+    radial-gradient(circle at 14% 16%, rgba(255, 104, 32, 0.16), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(69, 116, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 52% 78%, rgba(255, 255, 255, 0.04), transparent 28%),
+    linear-gradient(135deg, #060609 0%, #090a10 46%, #05060a 100%);
+  pointer-events: none;
+  z-index: -2;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 120px 120px;
+  mask-image: radial-gradient(circle at center, black 38%, transparent 100%);
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: -1;
+}
+
+#root {
+  background: transparent;
+  overflow: hidden;
+  isolation: isolate;
+}
+
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
-/* ── Glass ──────────────────────────────────────────────────── */
 .glass {
-  background: rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(40px) saturate(1.8);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.028)),
+    linear-gradient(135deg, rgba(255, 106, 26, 0.05), transparent 40%);
+  backdrop-filter: blur(32px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 20px 60px var(--color-panel-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .glass-hover:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.04)),
+    linear-gradient(135deg, rgba(255, 106, 26, 0.08), transparent 44%);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .glass-flat {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.02)),
+    rgba(7, 7, 10, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* ── Shimmer ───────────────────────────────────────────────── */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -93,15 +153,14 @@ body,
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.03) 25%,
-    rgba(255, 255, 255, 0.06) 50%,
-    rgba(255, 255, 255, 0.03) 75%
+    rgba(255, 255, 255, 0.025) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.025) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
 
-/* ── Scrollbar hide ────────────────────────────────────────── */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -111,24 +170,20 @@ body,
   scrollbar-width: none;
 }
 
-/* ── Selection ─────────────────────────────────────────────── */
 ::selection {
   background: var(--color-accent-selection);
   color: white;
 }
 
-/* ── Focus reset ───────────────────────────────────────────── */
 :focus {
   outline: none;
 }
 
 :focus-visible {
-  outline: 1px solid var(--color-accent);
+  outline: 2px solid rgba(255, 106, 26, 0.85);
   outline-offset: 2px;
-  border-radius: 8px;
 }
 
-/* ── Feed animations ──────────────────────────────────────── */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -144,53 +199,169 @@ body,
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
 
-/* ── Dialog animations (Radix data-state) ────────────────── */
 @keyframes dialogOverlayIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
+
 @keyframes dialogOverlayOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
+
 @keyframes dialogContentIn {
-  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
+
 @keyframes dialogContentOut {
-  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  to { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
 }
 
 .dialog-overlay[data-state="open"] {
   animation: dialogOverlayIn 0.2s var(--ease-apple) forwards;
 }
+
 .dialog-overlay[data-state="closed"] {
   animation: dialogOverlayOut 0.15s var(--ease-apple) forwards;
 }
+
 .dialog-content[data-state="open"] {
   animation: dialogContentIn 0.25s var(--ease-apple) forwards;
 }
+
 .dialog-content[data-state="closed"] {
   animation: dialogContentOut 0.15s var(--ease-apple) forwards;
 }
 
-/* ── Featured card glass ──────────────────────────────────── */
 .glass-featured {
-  background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(60px) saturate(2);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    radial-gradient(circle at top left, rgba(255, 106, 26, 0.12), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.022));
+  backdrop-filter: blur(44px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-    0 8px 40px rgba(0, 0, 0, 0.3);
+    0 18px 80px rgba(0, 0, 0, 0.34);
 }
 
 .glass-featured:hover {
-  background: rgba(255, 255, 255, 0.035);
-  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at top left, rgba(255, 106, 26, 0.16), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.028));
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
-/* ── Synced lyrics lines ─────────────────────────────────── */
+.surface-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    rgba(9, 10, 14, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.surface-panel-muted {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.015)),
+    rgba(8, 8, 11, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.section-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.012)),
+    rgba(8, 8, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 12px 42px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.section-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 140px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 106, 26, 0.9), transparent);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.section-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: rgba(255, 121, 57, 0.82);
+}
+
+.command-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.command-chip::before {
+  content: "/";
+  font-family: var(--font-mono);
+  color: rgba(255, 121, 57, 0.78);
+}
+
+.soft-divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0));
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.image-shell {
+  background:
+    radial-gradient(circle at top left, rgba(255, 106, 26, 0.08), transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.012));
+}
+
 .lyric-line {
   cursor: pointer;
   padding: 6px 0;
@@ -201,7 +372,6 @@ body,
   transform-origin: left center;
   transform: scale(1);
   will-change: transform, color;
-  /* Only composite-friendly props — no font-size/opacity reflows */
   transition:
     color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
     transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
@@ -215,4 +385,15 @@ body,
 
 .lyric-line[data-state="past"] {
   color: rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

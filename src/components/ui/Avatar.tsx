@@ -1,4 +1,5 @@
 import { art } from '../../lib/formatters';
+import { AppImage } from './AppImage';
 
 interface AvatarProps {
   src?: string | null;
@@ -25,11 +26,15 @@ export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps
   }
 
   return (
-    <img
+    <AppImage
       src={art(src, 't200x200') ?? undefined}
       alt={alt}
-      className={`rounded-full object-cover ${className}`}
-      style={sizeStyle}
+      width={size}
+      height={size}
+      containerClassName={`rounded-full ${className}`}
+      containerStyle={sizeStyle}
+      imgClassName="h-full w-full rounded-full object-cover"
+      priority={size >= 40}
     />
   );
 }

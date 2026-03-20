@@ -9,6 +9,7 @@ import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 import { LikeButton } from './LikeButton';
+import { AppImage } from '../ui/AppImage';
 
 interface TrackCardProps {
   track: Track;
@@ -32,18 +33,21 @@ export const TrackCard = React.memo(
       <div className="group relative" onMouseEnter={() => preloadTrack(track.urn)}>
         {/* Artwork */}
         <div
-          className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"
+          className="relative aspect-square rounded-[26px] overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.14] shadow-[0_16px_40px_rgba(0,0,0,0.24)] transition-all duration-300 ease-[var(--ease-apple)]"
           onClick={togglePlay}
         >
           {artwork ? (
-            <img
+            <AppImage
               src={artwork}
               alt={track.title}
-              className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"
-              decoding="async"
+              width={300}
+              height={300}
+              priority={false}
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/20">
+            <div className="w-full h-full flex items-center justify-center text-white/20 image-shell">
               {playIcon32}
             </div>
           )}
@@ -104,21 +108,21 @@ export const TrackCard = React.memo(
         </div>
 
         {/* Info */}
-        <div className="mt-3 min-w-0">
+        <div className="mt-3.5 min-w-0">
           <p
-            className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
+            className="text-[13px] font-semibold text-white/92 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
             onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
           >
             {track.title}
           </p>
           <p
-            className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
+            className="text-[11px] text-white/42 truncate mt-1 cursor-pointer hover:text-white/62 transition-colors duration-150"
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
             {track.user.username}
           </p>
           {track.playback_count != null && (
-            <p className="text-[10px] text-white/20 mt-1 tabular-nums">
+            <p className="text-[10px] text-white/24 mt-1.5 tabular-nums font-medium">
               {fc(track.playback_count)} plays
             </p>
           )}

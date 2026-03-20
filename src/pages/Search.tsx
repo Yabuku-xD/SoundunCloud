@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { AppImage } from '../components/ui/AppImage';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -70,7 +71,14 @@ const TrackRow = React.memo(
 
         <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" />
+            <AppImage
+              src={cover}
+              alt=""
+              width={48}
+              height={48}
+              containerClassName="h-full w-full"
+              imgClassName="h-full w-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
               {musicIcon20}
@@ -145,11 +153,13 @@ const UserCard = React.memo(({ user }: { user: SCUser }) => {
     >
       <div className="relative w-24 h-24 rounded-full shadow-xl overflow-hidden ring-2 ring-white/[0.05] group-hover:ring-white/[0.15] group-hover:scale-105 transition-all duration-500">
         {avatar ? (
-          <img
+          <AppImage
             src={avatar}
             alt={user.username}
-            className="w-full h-full object-cover"
-            decoding="async"
+            width={96}
+            height={96}
+            containerClassName="h-full w-full"
+            imgClassName="h-full w-full object-cover"
           />
         ) : (
           <div className="w-full h-full bg-white/5 flex items-center justify-center">

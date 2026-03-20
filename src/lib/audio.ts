@@ -4,7 +4,7 @@ import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId } from './api';
-import { fetchAndCacheTrack, getCacheFilePath, isCached } from './cache';
+import { fetchAndCacheTrack, getCacheFilePath, getCacheTargetPath, isCached } from './cache';
 import { API_BASE } from './constants';
 import { art } from './formatters';
 
@@ -99,13 +99,12 @@ async function loadTrack(track: Track) {
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
       const sessionId = getSessionId();
+      const cachePath = await getCacheTargetPath(urn);
       result = await invoke<{ duration_secs: number | null }>('audio_load_url', {
         url,
         sessionId: sessionId || null,
-        cachePath: null,
+        cachePath,
       });
-      // Background cache for next time
-      fetchAndCacheTrack(urn).catch(() => {});
     }
     // Detect preview: real audio duration is much shorter than track metadata duration
     if (result.duration_secs != null && fallbackDuration > 0) {
@@ -288,33 +287,43 @@ async function autoplayRelated(lastTrack: Track) {
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
 const MAX_CONCURRENT_PRELOADS = 2;
 let activePreloads = 0;
+const scheduledPreloads = new Set<string>();
+
+function queuePreload(urn: string, delayMs: number) {
+  if (scheduledPreloads.has(urn)) return;
+
+  scheduledPreloads.add(urn);
+  window.setTimeout(() => {
+    isCached(urn).then((hit) => {
+      if (hit || activePreloads >= MAX_CONCURRENT_PRELOADS) {
+        scheduledPreloads.delete(urn);
+        return;
+      }
+
+      activePreloads++;
+      fetchAndCacheTrack(urn)
+        .catch(() => {})
+        .finally(() => {
+          activePreloads--;
+          scheduledPreloads.delete(urn);
+        });
+    });
+  }, delayMs);
+}
 
 export function preloadTrack(urn: string) {
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
-    if (activePreloads >= MAX_CONCURRENT_PRELOADS) return;
-    isCached(urn).then((hit) => {
-      if (!hit && activePreloads < MAX_CONCURRENT_PRELOADS) {
-        activePreloads++;
-        fetchAndCacheTrack(urn)
-          .catch(() => {})
-          .finally(() => {
-            activePreloads--;
-          });
-      }
-    });
-  }, 500);
+    queuePreload(urn, 0);
+  }, 220);
 }
 
 export function preloadQueue() {
   const { queue, queueIndex } = usePlayerStore.getState();
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 2; i++) {
     const idx = queueIndex + i;
     if (idx < queue.length) {
-      const urn = queue[idx].urn;
-      isCached(urn).then((hit) => {
-        if (!hit) fetchAndCacheTrack(urn).catch(() => {});
-      });
+      queuePreload(queue[idx].urn, 450 + (i - 1) * 900);
     }
   }
 }
