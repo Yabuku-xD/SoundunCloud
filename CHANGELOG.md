@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.12 - 2026-03-19
+
+- Clarified the signed-out gate when SoundCloud browser sign-in is unavailable because this install has no OAuth credentials configured at runtime
+- Replaced the misleading loading cursor on the disabled sign-in button with a proper unavailable state so the app no longer looks hung
+
 ## v0.3.11 - 2026-03-19
 
 - Kept updater states inside the same bottom-right control, so `Check for updates`, `Update available`, and fallback download actions now live in one seamless place

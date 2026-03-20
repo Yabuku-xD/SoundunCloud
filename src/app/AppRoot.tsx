@@ -641,6 +641,11 @@ function AppRoot() {
           canSignIn={snapshot.oauthConfigured}
           isAuthorizing={isAuthorizing}
           onBeginLogin={handleBeginLogin}
+          unavailableReason={
+            snapshot.oauthConfigured
+              ? null
+              : "This install does not have SoundCloud OAuth credentials configured yet, so browser sign-in cannot start."
+          }
         />
       ) : (
         <main className="signed-in-shell">
@@ -906,12 +911,14 @@ type SignedOutGateProps = {
   canSignIn: boolean;
   isAuthorizing: boolean;
   onBeginLogin: () => void | Promise<void>;
+  unavailableReason?: string | null;
 };
 
 function SignedOutGate({
   canSignIn,
   isAuthorizing,
   onBeginLogin,
+  unavailableReason,
 }: SignedOutGateProps) {
   return (
     <main className="gate">
@@ -927,11 +934,22 @@ function SignedOutGate({
           className="button button--primary button--gate"
           disabled={!canSignIn || isAuthorizing}
           onClick={() => void onBeginLogin()}
+          title={unavailableReason ?? "Sign in with SoundCloud"}
           type="button"
         >
           {isAuthorizing ? <LoaderCircle className="spin" size={16} /> : null}
-          {isAuthorizing ? "Waiting for SoundCloud" : "Sign in with SoundCloud"}
+          {isAuthorizing
+            ? "Waiting for SoundCloud"
+            : canSignIn
+              ? "Sign in with SoundCloud"
+              : "SoundCloud sign-in unavailable"}
         </button>
+
+        {unavailableReason ? (
+          <p className="gate__hint" role="status">
+            {unavailableReason}
+          </p>
+        ) : null}
       </section>
     </main>
   );
