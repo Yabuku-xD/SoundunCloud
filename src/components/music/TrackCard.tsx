@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { preloadTrack } from '../../lib/audio';
-import { art, dur, fc } from '../../lib/formatters';
+import { art, dur } from '../../lib/formatters';
 import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
@@ -121,11 +121,6 @@ export const TrackCard = React.memo(
           >
             {track.user.username}
           </p>
-          {track.playback_count != null && (
-            <p className="text-[10px] text-white/24 mt-1.5 tabular-nums font-medium">
-              {fc(track.playback_count)} plays
-            </p>
-          )}
         </div>
       </div>
     );

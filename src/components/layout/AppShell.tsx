@@ -154,7 +154,7 @@ const AmbientGlow = React.memo(() => {
   if (!artwork) return null;
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 h-[400px] opacity-[0.06] blur-[100px] pointer-events-none transition-all duration-[2s] ease-out"
+      className="absolute bottom-0 left-0 right-0 h-[240px] opacity-[0.03] blur-[56px] pointer-events-none transition-all duration-700 ease-out"
       style={{
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
@@ -279,8 +279,7 @@ export const AppShell = React.memo(() => {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden relative">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.08),transparent_58%)]" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-[34vw] bg-[radial-gradient(circle_at_center,rgba(76,173,255,0.08),transparent_70%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.05),transparent_60%)]" />
       <CustomBackground />
       <AmbientGlow />
       <Titlebar />

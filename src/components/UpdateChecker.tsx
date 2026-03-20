@@ -1,109 +1,188 @@
-import { fetch } from '@tauri-apps/plugin-http';
+import { check, type Update as AvailableUpdate } from '@tauri-apps/plugin-updater';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { ExternalLink, Sparkles, X } from '../lib/icons';
-import { useEffect, useState } from 'react';
-import Markdown from 'react-markdown';
-import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO } from '../lib/constants';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import i18n from '../i18n';
+import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO } from '../lib/constants';
+import { Download, Loader2, Sparkles, Trash2 } from '../lib/icons';
 
-interface GithubRelease {
-  tag_name: string;
-  name: string;
-  body: string;
-  html_url: string;
-  published_at: string;
+type UpdateStatus = 'idle' | 'checking' | 'latest' | 'available' | 'installing' | 'handoff' | 'error';
+
+function releaseInstallerUrl(version: string) {
+  return `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/v${version}/SoundunCloud_${version}_x64-setup.exe`;
 }
 
-function stripLeadingV(version: string) {
-  return version.replace(/^v/, '');
+function statusLabel(
+  status: UpdateStatus,
+  isRu: boolean,
+  nextVersion?: string,
+  progress?: number | null,
+) {
+  if (status === 'checking') return isRu ? 'Проверка...' : 'Checking...';
+  if (status === 'available') return isRu ? `Установить ${nextVersion}` : `Install ${nextVersion}`;
+  if (status === 'installing') {
+    return isRu
+      ? `Установка${progress != null ? ` ${progress}%` : '...'}`
+      : `Installing${progress != null ? ` ${progress}%` : '...'}`;
+  }
+  if (status === 'handoff') return isRu ? 'Установщик открыт' : 'Installer opened';
+  if (status === 'latest') return isRu ? 'Актуальная версия' : 'Up to date';
+  if (status === 'error') return isRu ? 'Повторить' : 'Retry';
+  return isRu ? 'Проверить обновления' : 'Check updates';
 }
 
-async function fetchRelease(repo: string): Promise<GithubRelease | null> {
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${repo}/releases/latest`;
-  const r = await fetch(url);
-  return r.ok ? r.json() : null;
-}
+export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
+  const isRu = i18n.language?.startsWith('ru');
+  const [status, setStatus] = useState<UpdateStatus>('idle');
+  const [progress, setProgress] = useState<number | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
 
-export function UpdateChecker() {
-  const [release, setRelease] = useState<GithubRelease | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const installerUrl = useMemo(() => releaseInstallerUrl(APP_VERSION), []);
 
-  useEffect(() => {
-    fetchRelease(GITHUB_REPO)
-      .then((releaseData) => {
-        if (!releaseData) return;
-        const latest = stripLeadingV(releaseData.tag_name);
-        const current = stripLeadingV(APP_VERSION);
-        if (latest === current) return;
-        setRelease(releaseData);
-      })
-      .catch(() => {});
+  const runCheck = useCallback(async () => {
+    setStatus('checking');
+    setProgress(null);
+    try {
+      const update = await check();
+      setAvailableUpdate(update);
+      setStatus(update ? 'available' : 'latest');
+    } catch (error) {
+      console.error('Update check failed:', error);
+      setAvailableUpdate(null);
+      setStatus('error');
+    }
   }, []);
 
-  if (!release || dismissed) return null;
+  useEffect(() => {
+    void runCheck();
+  }, [runCheck]);
 
-  const isRu = i18n.language?.startsWith('ru');
+  const installUpdate = useCallback(async () => {
+    if (!availableUpdate) {
+      await runCheck();
+      return;
+    }
+
+    let downloaded = 0;
+    let total = 0;
+
+    setStatus('installing');
+    setProgress(0);
+
+    try {
+      await availableUpdate.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          downloaded = 0;
+          total = event.data.contentLength ?? 0;
+          setProgress(0);
+          return;
+        }
+
+        if (event.event === 'Progress') {
+          downloaded += event.data.chunkLength;
+          if (total > 0) {
+            setProgress(Math.min(100, Math.round((downloaded / total) * 100)));
+          }
+          return;
+        }
+
+        setProgress(100);
+      });
+
+      setStatus('handoff');
+    } catch (error) {
+      console.error('Update install failed:', error);
+      setStatus('error');
+      setProgress(null);
+    }
+  }, [availableUpdate, runCheck]);
+
+  const primaryAction = availableUpdate ? installUpdate : runCheck;
+  const primaryDisabled = status === 'checking' || status === 'installing' || status === 'handoff';
+  const primaryLabel = statusLabel(status, isRu, availableUpdate?.version, progress);
+  const helper =
+    status === 'available'
+      ? isRu
+        ? `Доступна версия ${availableUpdate?.version}`
+        : `Version ${availableUpdate?.version} is ready`
+      : status === 'handoff'
+        ? isRu
+          ? 'Завершите установку в открывшемся окне.'
+          : 'Finish the install in the window that opened.'
+        : status === 'error'
+          ? isRu
+            ? 'Обновление не удалось проверить.'
+            : 'Update check did not finish.'
+          : isRu
+            ? `Версия ${APP_VERSION}`
+            : `Version ${APP_VERSION}`;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        title={primaryLabel}
+        aria-label={primaryLabel}
+        onClick={() => void primaryAction()}
+        disabled={primaryDisabled}
+        className="mt-2 flex h-11 w-full items-center justify-center rounded-[18px] border border-white/[0.06] bg-white/[0.03] text-white/52 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78 disabled:cursor-default disabled:opacity-70"
+      >
+        {status === 'checking' || status === 'installing' ? (
+          <Loader2 size={16} className="animate-spin" />
+        ) : (
+          <Sparkles size={16} className={availableUpdate ? 'text-accent' : undefined} />
+        )}
+      </button>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e]/95 backdrop-blur-2xl border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-accent/15 flex items-center justify-center">
-              <Sparkles size={16} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold">
-                {isRu ? 'Доступно обновление' : 'Update available'}
-              </h2>
-              <p className="text-[11px] text-white/30 mt-0.5">
-                {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setDismissed(true)}
-            className="w-7 h-7 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <X size={14} className="text-white/40" />
-          </button>
+    <div className="mt-2 rounded-[22px] border border-white/[0.06] bg-white/[0.03] p-3">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[14px] bg-accent/[0.12] text-accent">
+          <Sparkles size={15} />
         </div>
-
-        {/* Release title */}
-        {release.name && (
-          <div className="px-5 pb-2">
-            <p className="text-[13px] font-medium text-white/80">{release.name}</p>
-          </div>
-        )}
-
-        {/* Release notes */}
-        {release.body && (
-          <div className="mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 prose prose-invert prose-sm max-w-none prose-p:text-white/60 prose-p:text-[12px] prose-p:leading-relaxed prose-headings:text-white/80 prose-headings:text-[13px] prose-headings:mt-3 prose-headings:mb-1 prose-strong:text-white/70 prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-li:text-white/60 prose-li:text-[12px] prose-code:text-accent/80 prose-code:text-[11px] prose-code:bg-white/[0.06] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-img:rounded-lg prose-img:max-w-full prose-hr:border-white/[0.08]">
-            <Markdown>{release.body}</Markdown>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-2 px-5 pb-5">
-          <button
-            type="button"
-            onClick={() => setDismissed(true)}
-            className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
-          >
-            {isRu ? 'Позже' : 'Later'}
-          </button>
-          <button
-            type="button"
-            onClick={() => openUrl(release.html_url)}
-            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-white font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
-          >
-            {isRu ? 'Скачать' : 'Download'}
-            <ExternalLink size={13} />
-          </button>
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold text-white/82">App</p>
+          <p className="text-[11px] text-white/36">{helper}</p>
         </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void primaryAction()}
+        disabled={primaryDisabled}
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-white/[0.08] px-3 py-3 text-[12px] font-semibold text-white/82 transition-colors duration-200 hover:bg-white/[0.12] disabled:cursor-default disabled:opacity-70"
+      >
+        {status === 'checking' || status === 'installing' ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <Sparkles size={14} className={availableUpdate ? 'text-accent' : undefined} />
+        )}
+        <span>{primaryLabel}</span>
+      </button>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void openUrl(installerUrl)}
+          className="flex items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] font-medium text-white/58 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78"
+        >
+          <Download size={13} />
+          <span>{isRu ? 'Установщик' : 'Installer'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => void openUrl('ms-settings:appsfeatures')}
+          className="flex items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] font-medium text-white/58 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78"
+        >
+          <Trash2 size={13} />
+          <span>{isRu ? 'Удалить' : 'Uninstall'}</span>
+        </button>
       </div>
     </div>
   );
+}
+
+export function UpdateChecker() {
+  return null;
 }

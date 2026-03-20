@@ -8,7 +8,6 @@ import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../
 import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
-  audioLines16,
   Heart,
   listMusic16,
   MicVocal,
@@ -26,8 +25,6 @@ import {
 import { optimisticToggleLike } from '../../lib/likes';
 import { useLyricsStore } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
-import { useSettingsStore } from '../../stores/settings';
-import { EqualizerPanel } from '../music/EqualizerPanel';
 import { AppImage } from '../ui/AppImage';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
@@ -145,7 +142,7 @@ const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 
     <button
       type="button"
       onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
-      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
+      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.06] ${
         volume === 0 ? 'text-accent' : 'text-white/40 hover:text-white/70'
       }`}
     >
@@ -240,7 +237,7 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
 /* ── Isolated control buttons ────────────────────────────────── */
 
 const btnClass = (active: boolean, size: 'default' | 'sm') =>
-  `${size === 'sm' ? 'w-9 h-9' : 'w-10 h-10'} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
+  `${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.06] ${
     active ? 'text-accent' : 'text-white/40 hover:text-white/70'
   }`;
 
@@ -251,7 +248,7 @@ const PlayPauseBtn = React.memo(() => {
     <button
       type="button"
       onClick={togglePlay}
-      className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center text-black hover:bg-white hover:scale-105 active:scale-95 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer mx-1.5"
+      className="mx-1 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_12px_28px_rgba(0,0,0,0.24)] transition-all duration-200 ease-[var(--ease-apple)] hover:scale-[1.04] hover:bg-white active:scale-[0.96] cursor-pointer"
     >
       {isPlaying ? pauseBlack20 : playBlack20}
     </button>
@@ -309,17 +306,6 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
-const EqBtn = React.memo(() => {
-  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
-  return (
-    <EqualizerPanel>
-      <button type="button" className={btnClass(eqEnabled, 'sm')}>
-        {audioLines16}
-      </button>
-    </EqualizerPanel>
-  );
-});
-
 /* ── Track Info (left section) ───────────────────────────────── */
 
 const TrackInfo = React.memo(() => {
@@ -329,12 +315,12 @@ const TrackInfo = React.memo(() => {
 
   if (!currentTrack) {
     return (
-      <div className="flex w-[320px] min-w-0 items-center gap-3.5">
-        <div className="surface-panel-muted flex w-full items-center gap-3 rounded-[24px] px-3 py-3">
-          <div className="h-12 w-12 rounded-[16px] bg-white/[0.04]" />
+      <div className="flex w-[280px] min-w-0 items-center gap-3">
+        <div className="flex w-full items-center gap-3 rounded-[22px] bg-white/[0.04] px-3 py-3 ring-1 ring-white/[0.06]">
+          <div className="h-12 w-12 rounded-[16px] bg-white/[0.05]" />
           <div className="min-w-0">
-            <p className="eyebrow">Playback</p>
-            <p className="mt-1 text-[13px] font-medium text-white/50">Nothing playing yet</p>
+            <p className="text-[13px] font-medium text-white/70">Nothing playing</p>
+            <p className="mt-1 text-[11px] text-white/32">Pick a track to start.</p>
           </div>
         </div>
       </div>
@@ -342,9 +328,9 @@ const TrackInfo = React.memo(() => {
   }
 
   return (
-    <div className="flex w-[320px] min-w-0 items-center gap-3.5">
+    <div className="flex w-[280px] min-w-0 items-center gap-3">
       <div
-        className="group/art relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-[18px] shadow-xl shadow-black/40 ring-1 ring-white/[0.06] transition-all duration-200 hover:ring-white/[0.12]"
+        className="group/art relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-[18px] shadow-xl shadow-black/30 ring-1 ring-white/[0.08] transition-all duration-200 hover:ring-white/[0.14]"
         onClick={() => artworkPanelApi.open()}
       >
         {artworkSmall ? (
@@ -373,8 +359,7 @@ const TrackInfo = React.memo(() => {
         </div>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="eyebrow">Now Playing</p>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <p
             className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
             onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
@@ -388,7 +373,7 @@ const TrackInfo = React.memo(() => {
           )}
         </div>
         <p
-          className="mt-1 text-[11px] text-white/42 truncate cursor-pointer hover:text-white/62 transition-colors"
+          className="mt-1 text-[11px] text-white/38 truncate cursor-pointer hover:text-white/62 transition-colors"
           onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
         >
           {currentTrack.user.username}
@@ -408,7 +393,7 @@ const BackgroundGlow = React.memo(() => {
   if (!artwork) return null;
   return (
     <div
-      className="absolute inset-0 opacity-[0.05] blur-3xl pointer-events-none"
+      className="pointer-events-none absolute inset-0 opacity-[0.045] blur-3xl"
       style={{
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
@@ -425,21 +410,15 @@ const BackgroundGlow = React.memo(() => {
 export const NowPlayingBar = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
     return (
-      <div className="relative shrink-0 px-2 pb-2">
+      <div className="relative shrink-0 px-3 pb-3">
         <BackgroundGlow />
-        {/* Isolated layer — repaints here won't cascade to blur background */}
-        <div
-          className="surface-panel relative overflow-hidden rounded-[30px]"
-          style={{ isolation: 'isolate' }}
-        >
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,106,26,0.85),transparent)]" />
+        <div className="glass-dock relative overflow-hidden rounded-[30px]" style={{ isolation: 'isolate' }}>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,106,26,0.48),rgba(255,255,255,0.08),transparent)]" />
           <ProgressSlider />
 
-          <div className="relative flex h-[92px] items-center gap-4 px-5">
-            {/* Left: track info */}
+          <div className="relative flex h-[88px] items-center gap-4 px-4 md:px-5">
             <TrackInfo />
 
-            {/* Center: controls */}
             <div className="flex flex-1 flex-col items-center gap-1">
               <div className="flex items-center gap-0.5">
                 <ShuffleBtn />
@@ -451,13 +430,11 @@ export const NowPlayingBar = React.memo(
               <ProgressTime />
             </div>
 
-            {/* Right: volume + queue */}
-            <div className="flex w-[250px] items-center justify-end gap-0.5">
-              <EqBtn />
+            <div className="flex w-[190px] items-center justify-end gap-0.5">
               <LyricsBtn />
               <QueueBtn onClick={onQueueToggle} active={queueOpen} />
               <ControlVolumeBtn size="sm" />
-              <VolumeSlider className="w-[100px]" />
+              <VolumeSlider className="w-[84px]" />
               <VolumeLabel />
             </div>
           </div>

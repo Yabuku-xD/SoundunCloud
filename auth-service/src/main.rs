@@ -247,8 +247,8 @@ async fn oauth_callback(
             Some(&format!("{error}: {error_detail}")),
         )?;
         return Ok(Html(render_handoff_page(
-            "SoundCloud sign-in did not finish",
-            "Return to SoundunCloud to try again.",
+            "Sign-in did not finish",
+            "Jump back into SoundunCloud to try again.",
             &deep_link,
         ))
         .into_response());
@@ -292,8 +292,8 @@ async fn oauth_callback(
     )?;
 
     Ok(Html(render_handoff_page(
-        "Opening SoundunCloud",
-        "If your browser does not reopen the desktop app automatically, use the button below.",
+        "Returning to SoundunCloud",
+        "This tab should close in a moment.",
         &deep_link,
     ))
     .into_response())
@@ -531,7 +531,7 @@ fn build_desktop_link(
 
 fn render_handoff_page(title: &str, message: &str, deep_link: &str) -> String {
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>SoundunCloud</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0a0a0c;color:#f8f8fa;font:16px/1.6 ui-monospace,\"SFMono-Regular\",\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}}main{{width:min(520px,calc(100vw - 32px));padding:32px;border-radius:28px;border:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015)),rgba(12,12,16,.88);box-shadow:0 24px 72px rgba(0,0,0,.34);text-align:center}}h1{{margin:0 0 14px;font-size:2rem;letter-spacing:-.03em}}p{{margin:0 0 22px;color:rgba(248,248,250,.72)}}a{{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:16px;background:linear-gradient(145deg,#ff5500,#ff7a00);color:#1e1204;text-decoration:none;font-weight:700;box-shadow:0 12px 30px rgba(255,85,0,.22)}}</style></head><body><main><h1>{title}</h1><p>{message}</p><a href=\"{deep_link}\">Return to SoundunCloud</a></main><script>window.setTimeout(function(){{window.location.href={deep_link:?};}},120);</script></body></html>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>SoundunCloud</title><style>:root{{color-scheme:dark}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 18% 18%,rgba(255,106,26,.12),transparent 22%),linear-gradient(145deg,#050508 0%,#08090d 42%,#05060a 100%);color:#f7f7f9;font:15px/1.5 \"Segoe UI Variable Text\",\"Segoe UI\",Inter,system-ui,sans-serif}}main{{width:min(360px,calc(100vw - 40px));text-align:center}}.mark{{width:54px;height:54px;margin:0 auto 18px;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);display:grid;place-items:center;box-shadow:0 18px 44px rgba(0,0,0,.22)}}.pulse{{width:14px;height:14px;border-radius:999px;border:2px solid rgba(255,106,26,.88);box-shadow:0 0 22px rgba(255,106,26,.28);position:relative}}.pulse::after{{content:\"\";position:absolute;inset:-7px;border-radius:999px;border:1px solid rgba(255,106,26,.22);animation:pulse 1.4s ease-out infinite}}h1{{margin:0;font-size:17px;letter-spacing:-.02em}}p{{margin:10px 0 18px;color:rgba(247,247,249,.56)}}a{{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:rgba(247,247,249,.82);text-decoration:none;font-weight:600}}@keyframes pulse{{0%{{transform:scale(.86);opacity:.85}}100%{{transform:scale(1.4);opacity:0}}}}</style></head><body><main><div class=\"mark\"><div class=\"pulse\"></div></div><h1>{title}</h1><p>{message}</p><a href=\"{deep_link}\">Open app</a></main><script>const deeplink={deep_link:?};window.setTimeout(function(){{window.location.replace(deeplink);}},40);window.setTimeout(function(){{window.close();}},420);</script></body></html>"
     )
 }
 

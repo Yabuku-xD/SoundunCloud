@@ -4,7 +4,6 @@ import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { ThemeProvider } from './components/ThemeProvider';
-import { UpdateChecker } from './components/UpdateChecker';
 import { Login } from './pages/Login';
 import { useAuthStore } from './stores/auth';
 
@@ -88,7 +87,6 @@ export default function App() {
             },
           }}
         />
-        <UpdateChecker />
         <Suspense fallback={<RouteLoader />}>
           <Routes>
             <Route element={<AppShell />}>

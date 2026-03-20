@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.1 - 2026-03-20
+
+- Simplified the desktop shell into a cleaner, lower-density home surface with far fewer sections and faster initial loading
+- Reworked the now-playing bar into a softer glass dock with lighter controls and less visual clutter
+- Replaced the callback handoff with a minimal dark return page so browser auth feels closer to the app instead of a separate purple flow
+
 ## v0.8.0 - 2026-03-20
 
 - Rebuilt the desktop UI with a stronger editorial shell inspired by modern high-end interface direction instead of the flatter generic dark dashboard look
