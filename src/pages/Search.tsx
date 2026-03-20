@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import type { ClipboardEvent, KeyboardEvent } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
@@ -21,7 +22,7 @@ import {
   heart11,
   ListPlus,
   Loader2,
-  musicIcon20,
+  Music,
   Pause,
   Play,
   Search as SearchIcon,
@@ -31,167 +32,137 @@ import {
 import { useTrackPlay } from '../lib/useTrackPlay';
 import type { Track } from '../stores/player';
 
-/* ── Components ───────────────────────────────────────────── */
+const panel =
+  'rounded-[30px] border border-[#e8e1f3] bg-white/[0.88] shadow-[0_18px_46px_rgba(188,177,220,0.12)]';
 
-const TrackRow = React.memo(
-  function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
-    const { t } = useTranslation();
-    const navigate = useNavigate();
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-    const cover = art(track.artwork_url, 't200x200');
+const rowBase =
+  'group flex items-center gap-4 rounded-[22px] border border-[#eee8f6] bg-[#fbf9fd] px-4 py-3 transition-colors duration-200 hover:bg-white';
 
-    return (
-      <div
-        className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
-          isThis
-            ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
-            : 'hover:bg-white/[0.04]'
-        }`}
-        onMouseEnter={() => preloadTrack(track.urn)}
-      >
-        <div
-          className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
-          onClick={togglePlay}
-        >
-          {isThisPlaying ? (
-            <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
-              <Pause size={16} fill="white" strokeWidth={0} />
-            </div>
-          ) : (
-            <div className="w-9 h-9 rounded-full bg-white/[0.06] group-hover:bg-white/10 flex items-center justify-center transition-all">
-              <Play
-                size={16}
-                fill="white"
-                strokeWidth={0}
-                className="ml-0.5 opacity-60 group-hover:opacity-100"
-              />
-            </div>
-          )}
-        </div>
+const SC_URL_RE = /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\/.+/i;
 
-        <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
-          {cover ? (
-            <AppImage
-              src={cover}
-              alt=""
-              width={48}
-              height={48}
-              containerClassName="h-full w-full"
-              imgClassName="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
-              {musicIcon20}
-            </div>
-          )}
-        </div>
+function isSoundCloudUrl(input: string) {
+  return SC_URL_RE.test(input.trim());
+}
 
-        <div className="flex-1 min-w-0 flex flex-col justify-center">
-          <p
-            className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
-              isThis
-                ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
-                : 'text-white/90 hover:text-white'
-            }`}
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
-            {track.title}
-          </p>
-          <p
-            className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-        </div>
-
-        <div className="hidden md:flex items-center gap-4 shrink-0 pr-4">
-          {track.playback_count != null && (
-            <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
-              {headphones11}
-              {fc(track.playback_count)}
-            </span>
-          )}
-          <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
-            {heart11}
-            {fc(track.favoritings_count ?? track.likes_count)}
-          </span>
-        </div>
-
-        {/* Like + Add to playlist */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <LikeButton track={track} />
-          <AddToPlaylistDialog trackUrns={[track.urn]}>
-            <button
-              type="button"
-              className="cursor-pointer w-8 h-8 rounded-lg flex items-center justify-center text-white/20 hover:text-white/50 opacity-0 group-hover:opacity-100 transition-all duration-200"
-              title={t('playlist.addToPlaylist')}
-            >
-              <ListPlus size={14} />
-            </button>
-          </AddToPlaylistDialog>
-        </div>
-
-        <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
-          {dur(track.duration)}
-        </span>
-      </div>
-    );
-  },
-  (prev, next) =>
-    prev.track.urn === next.track.urn && prev.track.user_favorite === next.track.user_favorite,
-);
-
-const UserCard = React.memo(({ user }: { user: SCUser }) => {
+function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
   const navigate = useNavigate();
-  const avatar = art(user.avatar_url, 't300x300');
+  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+  const cover = art(track.artwork_url, 't200x200');
 
   return (
     <div
-      className="group flex flex-col items-center gap-4 p-5 rounded-3xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-300 cursor-pointer"
-      onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
+      className={`${rowBase} ${isThis ? 'ring-1 ring-[#e6d6ff] bg-white' : ''}`}
+      onMouseEnter={() => preloadTrack(track.urn)}
     >
-      <div className="relative w-24 h-24 rounded-full shadow-xl overflow-hidden ring-2 ring-white/[0.05] group-hover:ring-white/[0.15] group-hover:scale-105 transition-all duration-500">
-        {avatar ? (
+      <button
+        type="button"
+        onClick={togglePlay}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
+          isThisPlaying
+            ? 'bg-accent text-white shadow-[0_12px_24px_rgba(255,113,52,0.2)]'
+            : 'bg-[#f2ecf8] text-[#4f406c] hover:bg-[#ebe4f5]'
+        }`}
+      >
+        {isThisPlaying ? <Pause size={16} fill="white" strokeWidth={0} /> : <Play size={16} fill="currentColor" strokeWidth={0} className="ml-0.5" />}
+      </button>
+
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-[16px] bg-[#efe8f7]">
+        {cover ? (
           <AppImage
-            src={avatar}
-            alt={user.username}
-            width={96}
-            height={96}
+            src={cover}
+            alt=""
+            width={48}
+            height={48}
             containerClassName="h-full w-full"
             imgClassName="h-full w-full object-cover"
           />
         ) : (
-          <div className="w-full h-full bg-white/5 flex items-center justify-center">
-            <Users size={32} className="text-white/20" />
+          <div className="flex h-full w-full items-center justify-center bg-[#efe8f7]">
+            <Music size={14} className="text-[#a89dbc]" />
           </div>
         )}
       </div>
 
-      <div className="text-center w-full">
-        <p className="text-[15px] font-bold text-white/90 truncate group-hover:text-white transition-colors">
-          {user.username}
+      <div className="min-w-0 flex-1">
+        <p
+          className={`truncate text-[14px] font-semibold transition-colors ${
+            isThis ? 'text-accent' : 'text-[#2f2442] hover:text-[#1f172f]'
+          }`}
+          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+        >
+          {track.title}
         </p>
-        <div className="flex items-center justify-center gap-3 mt-2 text-[11px] text-white/30 font-medium">
-          <span className="uppercase tracking-wider flex items-center gap-1">
-            <Users size={10} />
-            {fc(user.followers_count)}
-          </span>
-        </div>
+        <p
+          className="mt-1 truncate text-[12px] text-[#8f84a6] transition-colors hover:text-[#4a3b66]"
+          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+        >
+          {track.user.username}
+        </p>
       </div>
+
+      <div className="hidden items-center gap-4 pr-3 text-[11px] text-[#a094b6] md:flex">
+        {track.playback_count != null && (
+          <span className="flex w-16 items-center gap-1.5 tabular-nums">
+            {headphones11}
+            {fc(track.playback_count)}
+          </span>
+        )}
+        <span className="flex w-14 items-center gap-1.5 tabular-nums">
+          {heart11}
+          {fc(track.favoritings_count ?? track.likes_count)}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <LikeButton track={track} tone="light" />
+        <AddToPlaylistDialog trackUrns={[track.urn]}>
+          <button
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9b91af] transition-colors hover:bg-[#f1ecf8] hover:text-[#36294f]"
+          >
+            <ListPlus size={14} />
+          </button>
+        </AddToPlaylistDialog>
+      </div>
+
+      <span className="w-12 shrink-0 text-right text-[12px] font-medium tabular-nums text-[#a094b6]">
+        {dur(track.duration)}
+      </span>
     </div>
   );
-});
-
-/* ── URL Detection ───────────────────────────────────────── */
-
-const SC_URL_RE = /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\/.+/i;
-
-function isSoundCloudUrl(input: string): boolean {
-  return SC_URL_RE.test(input.trim());
 }
 
-/* ── Resolve Card ────────────────────────────────────────── */
+function UserCard({ user }: { user: SCUser }) {
+  const navigate = useNavigate();
+  const avatar = art(user.avatar_url, 't300x300');
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
+      className="rounded-[26px] border border-[#ece5f6] bg-white p-5 text-left shadow-[0_12px_28px_rgba(188,177,220,0.1)] transition-transform duration-200 hover:-translate-y-0.5"
+    >
+      <div className="relative h-20 w-20 overflow-hidden rounded-full bg-[#f2ecf8]">
+        {avatar ? (
+          <AppImage
+            src={avatar}
+            alt={user.username}
+            width={80}
+            height={80}
+            containerClassName="h-full w-full"
+            imgClassName="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Users size={24} className="text-[#a89dbc]" />
+          </div>
+        )}
+      </div>
+      <p className="mt-4 truncate text-[15px] font-semibold text-[#2f2442]">{user.username}</p>
+      <p className="mt-1 text-[11px] text-[#8f84a6]">{fc(user.followers_count)} followers</p>
+    </button>
+  );
+}
 
 function ResolveCard({ url, onDone }: { url: string; onDone: () => void }) {
   const navigate = useNavigate();
@@ -206,67 +177,50 @@ function ResolveCard({ url, onDone }: { url: string; onDone: () => void }) {
       .then((res) => {
         if (cancelled) return;
         setState('success');
-        const kind = res.kind;
-        const urn = res.urn;
-        if (kind === 'track') {
-          navigate(`/track/${encodeURIComponent(urn)}`);
-        } else if (kind === 'playlist' || kind === 'system-playlist') {
-          navigate(`/playlist/${encodeURIComponent(urn)}`);
-        } else if (kind === 'user') {
-          navigate(`/user/${encodeURIComponent(urn)}`);
-        } else {
-          setErrorMsg(`Unknown resource: ${kind}`);
+        if (res.kind === 'track') navigate(`/track/${encodeURIComponent(res.urn)}`);
+        else if (res.kind === 'playlist' || res.kind === 'system-playlist') navigate(`/playlist/${encodeURIComponent(res.urn)}`);
+        else if (res.kind === 'user') navigate(`/user/${encodeURIComponent(res.urn)}`);
+        else {
+          setErrorMsg(`Unknown resource: ${res.kind}`);
           setState('error');
         }
         onDone();
       })
-      .catch((e) => {
+      .catch((error) => {
         if (cancelled) return;
-        setErrorMsg(e?.body ? 'Link not found' : 'Failed to resolve');
+        setErrorMsg(error?.body ? 'Link not found' : 'Failed to resolve');
         setState('error');
       });
 
     return () => {
       cancelled = true;
     };
-  }, [url, navigate, onDone]);
+  }, [navigate, onDone, url]);
 
   return (
-    <div className="max-w-lg mx-auto mt-12 animate-fade-in-up">
-      <div className="glass rounded-3xl p-6 border border-white/[0.06]">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center shrink-0">
-            <ExternalLink size={20} className="text-accent" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-white/80">
-              {state === 'loading'
-                ? 'Resolving link...'
-                : state === 'error'
-                  ? 'Could not resolve'
-                  : 'Redirecting...'}
-            </p>
-            <p className="text-[11px] text-white/30 truncate mt-0.5">{url.trim()}</p>
-          </div>
-          {state === 'loading' && (
-            <Loader2 size={20} className="text-accent animate-spin shrink-0" />
-          )}
+    <div className={`${panel} mx-auto mt-10 max-w-lg p-5`}>
+      <div className="flex items-center gap-4">
+        <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-[#fff4ec] text-accent">
+          <ExternalLink size={18} />
         </div>
-        {state === 'error' && <p className="text-[12px] text-red-400/70 mt-3 pl-16">{errorMsg}</p>}
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-[#2f2442]">
+            {state === 'loading' ? 'Resolving link...' : state === 'error' ? 'Could not resolve' : 'Redirecting...'}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-[#8d82a2]">{url.trim()}</p>
+        </div>
+        {state === 'loading' && <Loader2 size={18} className="animate-spin text-accent" />}
       </div>
+      {state === 'error' && <p className="mt-3 pl-16 text-[12px] text-[#c06a53]">{errorMsg}</p>}
     </div>
   );
 }
 
-/* ── Isolated Search Results ──────────────────────────────── */
-
-/* Each search tab is its own component — only fetches its own data type */
-
-const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: string }) {
+function SearchTracksTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const tracksQuery = useSearchTracks(query);
   const uniqueTracks = useMemo(
-    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
+    () => Array.from(new Map(tracksQuery.tracks.map((track) => [track.urn, track])).values()),
     [tracksQuery.tracks],
   );
   const sentinelRef = useInfiniteScroll(
@@ -276,34 +230,33 @@ const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: 
   );
 
   return (
-    <div className="min-h-[400px]">
+    <section className={`${panel} p-5`}>
       {tracksQuery.isLoading ? (
         <div className="flex justify-center py-20">
-          <Loader2 size={32} className="animate-spin text-white/20" />
+          <Loader2 size={28} className="animate-spin text-[#b4a9c6]" />
         </div>
       ) : uniqueTracks.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+        <div className="py-20 text-center text-[#8d82a2]">{t('search.noResults')}</div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {uniqueTracks.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} queue={uniqueTracks} />
+        <div className="space-y-2">
+          {uniqueTracks.map((track) => (
+            <TrackRow key={track.urn} track={track} queue={uniqueTracks} />
           ))}
         </div>
       )}
-      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {tracksQuery.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
-      </div>
-    </div>
-  );
-});
 
-const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { query: string }) {
+      <div ref={sentinelRef} className="mt-6 flex h-16 items-center justify-center">
+        {tracksQuery.isFetchingNextPage && <Loader2 size={22} className="animate-spin text-[#b4a9c6]" />}
+      </div>
+    </section>
+  );
+}
+
+function SearchPlaylistsTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const playlistsQuery = useSearchPlaylists(query);
   const uniquePlaylists = useMemo(
-    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
+    () => Array.from(new Map(playlistsQuery.playlists.map((playlist) => [playlist.urn, playlist])).values()),
     [playlistsQuery.playlists],
   );
   const sentinelRef = useInfiniteScroll(
@@ -313,34 +266,33 @@ const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { q
   );
 
   return (
-    <div className="min-h-[400px]">
+    <section className={`${panel} p-5`}>
       {playlistsQuery.isLoading ? (
         <div className="flex justify-center py-20">
-          <Loader2 size={32} className="animate-spin text-white/20" />
+          <Loader2 size={28} className="animate-spin text-[#b4a9c6]" />
         </div>
       ) : uniquePlaylists.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+        <div className="py-20 text-center text-[#8d82a2]">{t('search.noResults')}</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {uniquePlaylists.map((p, i) => (
-            <PlaylistCard key={`${p.urn}-${i}`} playlist={p} />
+        <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
+          {uniquePlaylists.map((playlist) => (
+            <PlaylistCard key={playlist.urn} playlist={playlist} tone="light" />
           ))}
         </div>
       )}
-      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {playlistsQuery.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
-      </div>
-    </div>
-  );
-});
 
-const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: string }) {
+      <div ref={sentinelRef} className="mt-6 flex h-16 items-center justify-center">
+        {playlistsQuery.isFetchingNextPage && <Loader2 size={22} className="animate-spin text-[#b4a9c6]" />}
+      </div>
+    </section>
+  );
+}
+
+function SearchUsersTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const usersQuery = useSearchUsers(query);
   const uniqueUsers = useMemo(
-    () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
+    () => Array.from(new Map(usersQuery.users.map((user) => [user.urn, user])).values()),
     [usersQuery.users],
   );
   const sentinelRef = useInfiniteScroll(
@@ -350,41 +302,43 @@ const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: st
   );
 
   return (
-    <div className="min-h-[400px]">
+    <section className={`${panel} p-5`}>
       {usersQuery.isLoading ? (
         <div className="flex justify-center py-20">
-          <Loader2 size={32} className="animate-spin text-white/20" />
+          <Loader2 size={28} className="animate-spin text-[#b4a9c6]" />
         </div>
       ) : uniqueUsers.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+        <div className="py-20 text-center text-[#8d82a2]">{t('search.noResults')}</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {uniqueUsers.map((u, i) => (
-            <UserCard key={`${u.urn}-${i}`} user={u} />
+        <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
+          {uniqueUsers.map((user) => (
+            <UserCard key={user.urn} user={user} />
           ))}
         </div>
       )}
-      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {usersQuery.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
+
+      <div ref={sentinelRef} className="mt-6 flex h-16 items-center justify-center">
+        {usersQuery.isFetchingNextPage && <Loader2 size={22} className="animate-spin text-[#b4a9c6]" />}
       </div>
-    </div>
+    </section>
   );
-});
+}
 
-const SearchEmpty = React.memo(function SearchEmpty() {
+function SearchEmpty() {
   return (
-    <div className="flex flex-col items-center justify-center h-[400px] text-white/20">
-      <SearchIcon size={48} className="mb-4 opacity-50" />
-      <p className="text-sm font-medium">Search for artists, bands, tracks, podcasts</p>
-    </div>
+    <section className={`${panel} flex h-[360px] flex-col items-center justify-center text-center`}>
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#f4eef9] text-[#8e84a5]">
+        <SearchIcon size={24} />
+      </div>
+      <h3 className="mt-5 text-[22px] font-semibold tracking-[-0.04em] text-[#2f2442]">Search your library and SoundCloud.</h3>
+      <p className="mt-3 max-w-[40ch] text-[13px] leading-6 text-[#8d82a2]">
+        Look up tracks, playlists, or artists. You can also paste a SoundCloud link and jump straight to it.
+      </p>
+    </section>
   );
-});
+}
 
-/* ── Search Page ──────────────────────────────────────────── */
-
-export const Search = React.memo(() => {
+export const Search = memo(() => {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -393,31 +347,27 @@ export const Search = React.memo(() => {
 
   const isUrl = isSoundCloudUrl(inputValue);
 
-  // Debounce logic — skip debounce for URLs
   useEffect(() => {
     if (isUrl) {
       setDebouncedQuery('');
       return;
     }
+
     setResolveUrl(null);
-    const handler = setTimeout(() => {
-      setDebouncedQuery(inputValue);
-    }, 500);
+    const handler = setTimeout(() => setDebouncedQuery(inputValue), 350);
     return () => clearTimeout(handler);
   }, [inputValue, isUrl]);
 
-  // Handle Enter for URL resolve
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && isUrl) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && isUrl) {
       setResolveUrl(inputValue.trim());
     }
   };
 
-  // Handle paste — auto-resolve if it's a SC URL
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const pasted = e.clipboardData.getData('text');
+  const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = event.clipboardData.getData('text');
     if (isSoundCloudUrl(pasted)) {
-      e.preventDefault();
+      event.preventDefault();
       setInputValue(pasted);
       setResolveUrl(pasted.trim());
     }
@@ -430,62 +380,63 @@ export const Search = React.memo(() => {
   ] as const;
 
   return (
-    <div className="p-6 pb-4 space-y-8">
-      {/* Search Input */}
-      <div className="relative max-w-2xl mx-auto">
-        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          {isUrl ? (
-            <ExternalLink size={20} className="text-accent" />
-          ) : (
-            <SearchIcon size={20} className="text-white/40" />
-          )}
-        </div>
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={t('search.placeholder')}
-          className={`w-full bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] text-white placeholder:text-white/30 text-[16px] py-4 pl-12 pr-12 rounded-[20px] outline-none border transition-all duration-300 shadow-xl backdrop-blur-md ${
-            isUrl
-              ? 'border-accent/30 ring-1 ring-accent/20'
-              : 'border-white/[0.05] focus:border-accent/30 focus:ring-1 focus:ring-accent/30'
-          }`}
-          autoFocus
-        />
-        {inputValue && (
-          <button
-            onClick={() => {
-              setInputValue('');
-              setResolveUrl(null);
-            }}
-            className="absolute inset-y-0 right-4 flex items-center text-white/30 hover:text-white cursor-pointer transition-colors"
-          >
-            <X size={18} />
-          </button>
-        )}
-        {isUrl && !resolveUrl && (
-          <div className="absolute -bottom-7 left-0 text-[11px] text-accent/60 flex items-center gap-1.5">
-            <ExternalLink size={10} />
-            Press Enter to open link
+    <div className="mx-auto flex max-w-[1220px] flex-col gap-6 px-6 py-6">
+      <section className="rounded-[34px] border border-[#e8e1f3] bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,244,252,0.92))] px-7 py-7 shadow-[0_20px_60px_rgba(188,177,220,0.14)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#a194b8]">
+          Search
+        </p>
+        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+          <div className="relative">
+            <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
+              {isUrl ? <ExternalLink size={18} className="text-accent" /> : <SearchIcon size={18} className="text-[#9388a8]" />}
+            </div>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder={t('search.placeholder')}
+              className={`w-full rounded-[20px] border bg-white px-12 py-4 text-[15px] text-[#2f2442] outline-none transition-colors ${
+                isUrl
+                  ? 'border-[#ffd6c2] ring-2 ring-[#fff1e8]'
+                  : 'border-[#ece5f6] focus:border-[#d7c9ec]'
+              }`}
+              autoFocus
+            />
+            {inputValue && (
+              <button
+                type="button"
+                onClick={() => {
+                  setInputValue('');
+                  setResolveUrl(null);
+                }}
+                className="absolute inset-y-0 right-4 flex items-center text-[#9d92b1] transition-colors hover:text-[#352a4d]"
+              >
+                <X size={18} />
+              </button>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Tabs */}
+          <div className="rounded-[24px] border border-[#ece5f6] bg-white/72 px-5 py-4 text-[12px] text-[#8d82a2]">
+            Paste any SoundCloud link and press Enter to jump straight into it.
+          </div>
+        </div>
+      </section>
+
       {debouncedQuery && (
-        <div className="flex items-center justify-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg mx-auto">
+        <div className="flex items-center gap-2">
           {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
+            const active = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
-                  isActive
-                    ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
-                    : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent'
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-full px-4 py-2 text-[12px] font-semibold transition-colors ${
+                  active
+                    ? 'bg-[#2f2442] text-white shadow-[0_12px_28px_rgba(53,40,77,0.18)]'
+                    : 'border border-[#e6def1] bg-white text-[#7f7496] hover:text-[#34284b]'
                 }`}
               >
                 {tab.label}
@@ -495,7 +446,6 @@ export const Search = React.memo(() => {
         </div>
       )}
 
-      {/* Resolve */}
       {resolveUrl && (
         <ResolveCard
           url={resolveUrl}
@@ -506,17 +456,10 @@ export const Search = React.memo(() => {
         />
       )}
 
-      {/* Results — each tab only fetches its own data */}
       {!resolveUrl && !debouncedQuery && <SearchEmpty />}
-      {!resolveUrl && debouncedQuery && activeTab === 'tracks' && (
-        <SearchTracksTab query={debouncedQuery} />
-      )}
-      {!resolveUrl && debouncedQuery && activeTab === 'playlists' && (
-        <SearchPlaylistsTab query={debouncedQuery} />
-      )}
-      {!resolveUrl && debouncedQuery && activeTab === 'users' && (
-        <SearchUsersTab query={debouncedQuery} />
-      )}
+      {!resolveUrl && debouncedQuery && activeTab === 'tracks' && <SearchTracksTab query={debouncedQuery} />}
+      {!resolveUrl && debouncedQuery && activeTab === 'playlists' && <SearchPlaylistsTab query={debouncedQuery} />}
+      {!resolveUrl && debouncedQuery && activeTab === 'users' && <SearchUsersTab query={debouncedQuery} />}
     </div>
   );
 });

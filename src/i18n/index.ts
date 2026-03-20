@@ -8,19 +8,9 @@ i18n.use(initReactI18next).init({
     en: { translation: en },
     ru: { translation: ru },
   },
-  lng: navigator.language?.split('-')[0] || 'en',
+  lng: 'en',
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
-});
-
-// Sync language changes back to settings store
-i18n.on('languageChanged', (lng) => {
-  import('../stores/settings').then(({ useSettingsStore }) => {
-    const store = useSettingsStore.getState();
-    if (store.language !== lng) {
-      store.setLanguage(lng);
-    }
-  });
 });
 
 export default i18n;

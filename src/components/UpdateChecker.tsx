@@ -1,33 +1,61 @@
-import { check, type Update as AvailableUpdate } from '@tauri-apps/plugin-updater';
+import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import i18n from '../i18n';
+import { check, type Update as AvailableUpdate } from '@tauri-apps/plugin-updater';
+import { useCallback, useMemo, useState } from 'react';
 import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO } from '../lib/constants';
 import { Download, Loader2, Sparkles, Trash2 } from '../lib/icons';
 
 type UpdateStatus = 'idle' | 'checking' | 'latest' | 'available' | 'installing' | 'handoff' | 'error';
 
+interface ReleaseMetadata {
+  version: string;
+}
+
 function releaseInstallerUrl(version: string) {
   return `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/v${version}/SoundunCloud_${version}_x64-setup.exe`;
 }
 
-function statusLabel(
-  status: UpdateStatus,
-  isRu: boolean,
-  nextVersion?: string,
-  progress?: number | null,
-) {
-  if (status === 'checking') return isRu ? 'Проверка...' : 'Checking...';
-  if (status === 'available') return isRu ? `Установить ${nextVersion}` : `Install ${nextVersion}`;
-  if (status === 'installing') {
-    return isRu
-      ? `Установка${progress != null ? ` ${progress}%` : '...'}`
-      : `Installing${progress != null ? ` ${progress}%` : '...'}`;
+function latestFeedUrl() {
+  return `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/latest.json`;
+}
+
+function compareVersions(left: string, right: string) {
+  const leftParts = left.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = right.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) return delta;
   }
-  if (status === 'handoff') return isRu ? 'Установщик открыт' : 'Installer opened';
-  if (status === 'latest') return isRu ? 'Актуальная версия' : 'Up to date';
-  if (status === 'error') return isRu ? 'Повторить' : 'Retry';
-  return isRu ? 'Проверить обновления' : 'Check updates';
+
+  return 0;
+}
+
+function statusLabel(status: UpdateStatus, nextVersion?: string, progress?: number | null) {
+  if (status === 'checking') return 'Checking...';
+  if (status === 'available') return `Install ${nextVersion}`;
+  if (status === 'installing') {
+    return `Installing${progress != null ? ` ${progress}%` : '...'}`;
+  }
+  if (status === 'handoff') return 'Installer opened';
+  if (status === 'latest') return 'Up to date';
+  if (status === 'error') return 'Try again';
+  return 'Check updates';
+}
+
+async function fetchLatestReleaseVersion() {
+  const response = await fetch(latestFeedUrl());
+  if (!response.ok) {
+    throw new Error(`Latest feed request failed with ${response.status}`);
+  }
+
+  const payload = (await response.json()) as ReleaseMetadata;
+  if (!payload.version) {
+    throw new Error('Latest feed did not include a version');
+  }
+
+  return payload.version;
 }
 
 export function SidebarUpdateCard({
@@ -37,35 +65,65 @@ export function SidebarUpdateCard({
   collapsed: boolean;
   tone?: 'light' | 'dark';
 }) {
-  const isRu = i18n.language?.startsWith('ru');
   const light = tone === 'light';
   const [status, setStatus] = useState<UpdateStatus>('idle');
   const [progress, setProgress] = useState<number | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
+  const [fallbackVersion, setFallbackVersion] = useState<string | null>(null);
 
   const installerUrl = useMemo(() => releaseInstallerUrl(APP_VERSION), []);
+  const nextVersion = availableUpdate?.version ?? fallbackVersion ?? undefined;
 
   const runCheck = useCallback(async () => {
     setStatus('checking');
     setProgress(null);
+    setAvailableUpdate(null);
+    setFallbackVersion(null);
+
     try {
       const update = await check();
-      setAvailableUpdate(update);
-      setStatus(update ? 'available' : 'latest');
+      if (update) {
+        setAvailableUpdate(update);
+        setStatus('available');
+        return;
+      }
+
+      const latestVersion = await fetchLatestReleaseVersion();
+      if (compareVersions(latestVersion, APP_VERSION) > 0) {
+        setFallbackVersion(latestVersion);
+        setStatus('available');
+        return;
+      }
+
+      setStatus('latest');
     } catch (error) {
       console.error('Update check failed:', error);
-      setAvailableUpdate(null);
-      setStatus('error');
+
+      try {
+        const latestVersion = await fetchLatestReleaseVersion();
+        if (compareVersions(latestVersion, APP_VERSION) > 0) {
+          setFallbackVersion(latestVersion);
+          setStatus('available');
+          return;
+        }
+
+        setStatus('latest');
+      } catch (fallbackError) {
+        console.error('Fallback release check failed:', fallbackError);
+        setStatus('error');
+      }
     }
   }, []);
 
-  useEffect(() => {
-    void runCheck();
-  }, [runCheck]);
-
   const installUpdate = useCallback(async () => {
-    if (!availableUpdate) {
+    if (!availableUpdate && !fallbackVersion) {
       await runCheck();
+      return;
+    }
+
+    if (!availableUpdate && fallbackVersion) {
+      setStatus('handoff');
+      await openUrl(releaseInstallerUrl(fallbackVersion));
       return;
     }
 
@@ -76,7 +134,7 @@ export function SidebarUpdateCard({
     setProgress(0);
 
     try {
-      await availableUpdate.downloadAndInstall((event) => {
+      await availableUpdate!.downloadAndInstall((event) => {
         if (event.event === 'Started') {
           downloaded = 0;
           total = event.data.contentLength ?? 0;
@@ -98,29 +156,28 @@ export function SidebarUpdateCard({
       setStatus('handoff');
     } catch (error) {
       console.error('Update install failed:', error);
+
+      if (availableUpdate?.version) {
+        setFallbackVersion(availableUpdate.version);
+      }
+
       setStatus('error');
       setProgress(null);
     }
-  }, [availableUpdate, runCheck]);
+  }, [availableUpdate, fallbackVersion, runCheck]);
 
-  const primaryAction = availableUpdate ? installUpdate : runCheck;
+  const primaryAction = nextVersion ? installUpdate : runCheck;
   const primaryDisabled = status === 'checking' || status === 'installing' || status === 'handoff';
-  const primaryLabel = statusLabel(status, isRu, availableUpdate?.version, progress);
+  const primaryLabel = statusLabel(status, nextVersion, progress);
   const helper =
     status === 'available'
-      ? isRu
-        ? `Доступна версия ${availableUpdate?.version}`
-        : `Version ${availableUpdate?.version} is ready`
+      ? `Version ${nextVersion} is ready`
       : status === 'handoff'
-        ? isRu
-          ? 'Завершите установку в открывшемся окне.'
-          : 'Finish the install in the window that opened.'
-        : status === 'error'
-          ? isRu
-            ? 'Обновление не удалось проверить.'
-            : 'Update check did not finish.'
-          : isRu
-            ? `Версия ${APP_VERSION}`
+        ? 'Finish the install in the window that opened.'
+        : status === 'latest'
+          ? `You are on ${APP_VERSION}`
+          : status === 'error'
+            ? 'Update check failed. Use the installer below if needed.'
             : `Version ${APP_VERSION}`;
 
   if (collapsed) {
@@ -140,7 +197,7 @@ export function SidebarUpdateCard({
         {status === 'checking' || status === 'installing' ? (
           <Loader2 size={16} className="animate-spin" />
         ) : (
-          <Sparkles size={16} className={availableUpdate ? 'text-accent' : undefined} />
+          <Sparkles size={16} className={nextVersion ? 'text-accent' : undefined} />
         )}
       </button>
     );
@@ -150,7 +207,7 @@ export function SidebarUpdateCard({
     <div
       className={`mt-2 rounded-[22px] border p-3 ${
         light
-          ? 'border-[#e6def1] bg-white/68 shadow-[0_14px_40px_rgba(191,181,226,0.18)]'
+          ? 'border-[#e6def1] bg-white/72 shadow-[0_14px_40px_rgba(191,181,226,0.18)]'
           : 'border-white/[0.06] bg-white/[0.03]'
       }`}
     >
@@ -181,7 +238,7 @@ export function SidebarUpdateCard({
         {status === 'checking' || status === 'installing' ? (
           <Loader2 size={14} className="animate-spin" />
         ) : (
-          <Sparkles size={14} className={availableUpdate ? 'text-accent' : undefined} />
+          <Sparkles size={14} className={nextVersion ? 'text-accent' : undefined} />
         )}
         <span>{primaryLabel}</span>
       </button>
@@ -197,7 +254,7 @@ export function SidebarUpdateCard({
           }`}
         >
           <Download size={13} />
-          <span>{isRu ? 'Установщик' : 'Installer'}</span>
+          <span>Installer</span>
         </button>
         <button
           type="button"
@@ -209,7 +266,7 @@ export function SidebarUpdateCard({
           }`}
         >
           <Trash2 size={13} />
-          <span>{isRu ? 'Удалить' : 'Uninstall'}</span>
+          <span>Uninstall</span>
         </button>
       </div>
     </div>

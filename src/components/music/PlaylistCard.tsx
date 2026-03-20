@@ -11,11 +11,13 @@ interface PlaylistCardProps {
   playlist: Playlist;
   /** Show play button, playlist type badge, likes count */
   showPlayback?: boolean;
+  tone?: 'dark' | 'light';
 }
 
 export const PlaylistCard = React.memo(
-  function PlaylistCard({ playlist, showPlayback }: PlaylistCardProps) {
+  function PlaylistCard({ playlist, showPlayback, tone = 'dark' }: PlaylistCardProps) {
     const navigate = useNavigate();
+    const light = tone === 'light';
     const cover =
       art(playlist.artwork_url, 't300x300') ?? art(playlist.tracks?.[0]?.artwork_url, 't300x300');
 
@@ -61,7 +63,13 @@ export const PlaylistCard = React.memo(
         className="group relative flex flex-col gap-3 cursor-pointer"
         onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
       >
-        <div className="relative aspect-square rounded-[26px] overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.24)] group-hover:shadow-[0_22px_60px_rgba(0,0,0,0.3)] group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
+        <div
+          className={`relative aspect-square overflow-hidden rounded-[26px] transition-all duration-500 ease-[var(--ease-apple)] ${
+            light
+              ? 'bg-[#f6f1fb] ring-1 ring-[#ece5f6] shadow-[0_18px_34px_rgba(188,177,220,0.14)] group-hover:ring-[#ded3ef]'
+              : 'bg-white/[0.02] ring-1 ring-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.24)] group-hover:shadow-[0_22px_60px_rgba(0,0,0,0.3)] group-hover:ring-white/[0.15]'
+          }`}
+        >
           {cover ? (
             <AppImage
               src={cover}
@@ -82,8 +90,12 @@ export const PlaylistCard = React.memo(
             <div
               className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
                 isPlayingFromThis
-                  ? 'bg-black/40 backdrop-blur-sm opacity-100'
-                  : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100'
+                  ? light
+                    ? 'bg-white/35 backdrop-blur-sm opacity-100'
+                    : 'bg-black/40 backdrop-blur-sm opacity-100'
+                  : light
+                    ? 'bg-white/0 opacity-0 group-hover:bg-white/35 group-hover:backdrop-blur-sm group-hover:opacity-100'
+                    : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100'
               }`}
             >
               <div
@@ -107,7 +119,11 @@ export const PlaylistCard = React.memo(
 
           {playlist.track_count != null && (
             <div
-              className={`absolute bottom-2.5 right-2.5 flex items-center gap-1.5 text-[11px] font-medium bg-black/60 backdrop-blur-md text-white/90 px-2.5 py-1 rounded-full shadow-lg ${
+              className={`absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-full shadow-lg ${
+                light
+                  ? 'bg-white/92 text-[#45365f] ring-1 ring-[#ece5f6]'
+                  : 'bg-black/60 text-white/90'
+              } ${
                 showPlayback
                   ? 'opacity-0 group-hover:opacity-100 transition-opacity duration-300'
                   : ''
@@ -120,23 +136,35 @@ export const PlaylistCard = React.memo(
         </div>
 
         <div className="min-w-0 px-1">
-          <p className="text-[14px] font-semibold text-white/92 truncate leading-snug group-hover:text-white transition-colors duration-200">
+          <p
+            className={`truncate text-[14px] font-semibold leading-snug transition-colors duration-200 ${
+              light ? 'text-[#2f2442] group-hover:text-[#1e172e]' : 'text-white/92 group-hover:text-white'
+            }`}
+          >
             {playlist.title}
           </p>
           {showPlayback ? (
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] font-bold text-white/36 uppercase tracking-wider bg-white/[0.05] px-1.5 py-0.5 rounded-md">
+              <span
+                className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  light ? 'bg-[#f3eef8] text-[#8b7fa1]' : 'bg-white/[0.05] text-white/36'
+                }`}
+              >
                 {playlist.playlist_type || 'Playlist'}
               </span>
               {playlist.likes_count > 0 && (
-                <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1">
-                  <Heart size={10} className="text-white/20" />
+                <span
+                  className={`flex items-center gap-1 text-[11px] tabular-nums ${
+                    light ? 'text-[#8f84a6]' : 'text-white/30'
+                  }`}
+                >
+                  <Heart size={10} className={light ? 'text-[#b1a6c4]' : 'text-white/20'} />
                   {fc(playlist.likes_count)}
                 </span>
               )}
             </div>
           ) : (
-            <p className="text-[12px] text-white/40 truncate mt-1">
+            <p className={`mt-1 truncate text-[12px] ${light ? 'text-[#8f84a6]' : 'text-white/40'}`}>
               {playlist.user?.username || 'Unknown'}
             </p>
           )}

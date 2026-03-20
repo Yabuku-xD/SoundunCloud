@@ -394,7 +394,8 @@ export const TrackPage = React.memo(() => {
   };
 
   return (
-    <div className="p-6 pb-4 space-y-7">
+    <div className="px-6 py-6">
+      <div className="space-y-7 rounded-[34px] bg-[linear-gradient(180deg,#121119_0%,#0f0d14_100%)] p-6 shadow-[0_22px_70px_rgba(24,18,38,0.28)]">
       {/* ── Hero ─────────────────────────────────────── */}
       <section className="relative rounded-3xl overflow-hidden glass-featured">
         {/* Blurred bg */}
@@ -702,6 +703,7 @@ export const TrackPage = React.memo(() => {
             )}
           </section>
         </div>
+      </div>
       </div>
     </div>
   );

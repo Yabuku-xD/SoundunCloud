@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.3 - 2026-03-20
+
+- Extended the lighter redesign beyond Home so Search, Library, Settings, and the shared shell no longer fall back to the old dark UI
+- Removed the fake friends rail plus the extra language, wallpaper, accent-color, and in-app audio-output controls to keep the app simpler and cleaner
+- Reworked the sidebar updater into a manual check/install flow with a GitHub release fallback so updates can still hand off to the installer when the native check is flaky
+
 ## v0.8.2 - 2026-03-20
 
 - Rebuilt the home shell around a cleaner reference-style layout with a soft left rail, centered content board, and a dedicated right activity column

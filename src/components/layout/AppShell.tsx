@@ -1,9 +1,8 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
-import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
@@ -123,24 +122,6 @@ const KeybindingsDialog = React.memo(
   },
 );
 
-const CustomBackground = React.memo(({ light }: { light: boolean }) => {
-  const bgName = useSettingsStore((state) => state.backgroundImage);
-  const bgOpacity = useSettingsStore((state) => state.backgroundOpacity);
-
-  const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
-  if (!bgUrl || light) return null;
-
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
-      style={{
-        backgroundImage: `url(${bgUrl})`,
-        opacity: bgOpacity,
-      }}
-    />
-  );
-});
-
 const AmbientGlow = React.memo(({ light }: { light: boolean }) => {
   const artwork = usePlayerStore((state) => art(state.currentTrack?.artwork_url, 't500x500'));
   if (!artwork) return null;
@@ -171,9 +152,8 @@ const isInputEl = (element: EventTarget | null) =>
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
-  const location = useLocation();
   const navigate = useNavigate();
-  const lightChrome = location.pathname === '/';
+  const lightChrome = true;
 
   const onQueueToggle = useCallback(() => setQueueOpen((value) => !value), []);
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
@@ -268,20 +248,8 @@ export const AppShell = React.memo(() => {
   }, [kbOpen, navigate, queueOpen]);
 
   return (
-    <div
-      className={`relative flex h-screen overflow-hidden ${
-        lightChrome
-          ? 'bg-[linear-gradient(180deg,#f3f0fb_0%,#f8f6fc_40%,#f2eef9_100%)]'
-          : 'bg-[linear-gradient(180deg,#0a0b10_0%,#08090d_100%)]'
-      }`}
-    >
-      {lightChrome && (
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,138,76,0.18),transparent_18%),radial-gradient(circle_at_82%_18%,rgba(186,177,242,0.26),transparent_22%)]" />
-      )}
-      {!lightChrome && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.05),transparent_60%)]" />
-      )}
-      <CustomBackground light={lightChrome} />
+    <div className="relative flex h-screen overflow-hidden bg-[linear-gradient(180deg,#f7f3fb_0%,#fdfbfd_42%,#f2eef8_100%)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_10%,rgba(255,124,63,0.15),transparent_18%),radial-gradient(circle_at_82%_16%,rgba(204,194,238,0.3),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.34),transparent_34%)]" />
       <AmbientGlow light={lightChrome} />
 
       <div className="relative z-10 flex min-h-0 flex-1 gap-4 p-4">
@@ -290,11 +258,7 @@ export const AppShell = React.memo(() => {
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <Titlebar tone={lightChrome ? 'light' : 'dark'} />
           <main
-            className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-[34px] ${
-              lightChrome
-                ? 'border border-[#e8e1f5] bg-[rgba(255,255,255,0.78)] shadow-[0_24px_80px_rgba(188,177,220,0.26)]'
-                : 'bg-transparent'
-            }`}
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-[34px] border border-[#e7dff2] bg-[rgba(255,255,255,0.8)] shadow-[0_28px_90px_rgba(188,177,220,0.24)] backdrop-blur-xl"
           >
             <StableOutlet />
           </main>

@@ -9,11 +9,14 @@ import type { Track } from '../../stores/player';
 export const LikeButton = React.memo(function LikeButton({
   track,
   variant = 'inline',
+  tone = 'dark',
 }: {
   track: Track;
   variant?: 'overlay' | 'inline';
+  tone?: 'dark' | 'light';
 }) {
   const liked = useLiked(track.urn);
+  const light = tone === 'light';
 
   // Seed from API data when available
   useEffect(() => {
@@ -43,7 +46,9 @@ export const LikeButton = React.memo(function LikeButton({
         className={`cursor-pointer absolute top-2 left-2 w-8 h-8 rounded-full backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
           liked
             ? 'bg-accent/80 text-white'
-            : 'bg-black/50 text-white/80 hover:text-white hover:bg-black/70'
+            : light
+              ? 'bg-white/90 text-[#6f6387] hover:text-[#2f2442] hover:bg-white'
+              : 'bg-black/50 text-white/80 hover:text-white hover:bg-black/70'
         }`}
       >
         <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
@@ -56,7 +61,11 @@ export const LikeButton = React.memo(function LikeButton({
       type="button"
       onClick={toggle}
       className={`cursor-pointer w-8 h-8 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shrink-0 ${
-        liked ? 'text-accent' : 'text-white/20 hover:text-white/50'
+        liked
+          ? 'text-accent'
+          : light
+            ? 'text-[#9b91af] hover:bg-[#f3eef8] hover:text-[#3b2e55]'
+            : 'text-white/20 hover:text-white/50'
       }`}
     >
       <Heart size={14} fill={liked ? 'currentColor' : 'none'} />

@@ -501,7 +501,8 @@ export function UserPage() {
   ] as const;
 
   return (
-    <div className="p-6 pb-4 space-y-8">
+    <div className="px-6 py-6">
+      <div className="space-y-8 rounded-[34px] bg-[linear-gradient(180deg,#121119_0%,#0f0d14_100%)] p-6 shadow-[0_22px_70px_rgba(24,18,38,0.28)]">
       {isOwnProfile && (
         <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/20 text-amber-400/90 px-5 py-3.5 rounded-2xl flex items-center gap-3 text-[13px] font-medium backdrop-blur-xl shadow-lg">
           <AlertCircle size={18} />
@@ -691,6 +692,7 @@ export function UserPage() {
             </section>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

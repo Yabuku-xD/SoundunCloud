@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { useSettingsStore } from '../stores/settings';
 
 function hexToRgb(hex: string): string {
   const h = hex.replace('#', '');
@@ -10,9 +9,8 @@ function hexToRgb(hex: string): string {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const accentColor = useSettingsStore((s) => s.accentColor);
-
   useEffect(() => {
+    const accentColor = '#ff5500';
     const root = document.documentElement;
     const rgb = hexToRgb(accentColor);
     root.style.setProperty('--color-accent', accentColor);
@@ -24,7 +22,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty('--color-accent-hover', hover);
     root.style.setProperty('--color-accent-glow', `rgba(${rgb}, 0.2)`);
     root.style.setProperty('--color-accent-selection', `rgba(${rgb}, 0.3)`);
-  }, [accentColor]);
+  }, []);
 
   return <>{children}</>;
 }

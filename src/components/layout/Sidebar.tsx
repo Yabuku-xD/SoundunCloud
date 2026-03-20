@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Disc3,
-  Globe,
   Home,
   Library,
   PanelLeftClose,
@@ -16,11 +15,6 @@ import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { SidebarUpdateCard } from '../UpdateChecker';
 import { Avatar } from '../ui/Avatar';
-
-const languages = [
-  { code: 'en', label: 'English' },
-  { code: 'ru', label: 'Русский' },
-] as const;
 
 const navItems = [
   { to: '/', icon: Home, label: 'nav.home', group: 'Discover' },
@@ -41,19 +35,12 @@ function SectionLabel({ children, light }: { children: React.ReactNode; light: b
 }
 
 export const Sidebar = React.memo(({ tone = 'dark' }: { tone?: 'light' | 'dark' }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const collapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useSettingsStore((state) => state.toggleSidebar);
   const light = tone === 'light';
-
-  const toggleLanguage = () => {
-    const next = i18n.language === 'ru' ? 'en' : 'ru';
-    i18n.changeLanguage(next);
-  };
-
-  const currentLang = languages.find((language) => language.code === i18n.language) ?? languages[0];
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center rounded-[20px] px-3 py-3 text-[13px] font-medium transition-all duration-200 ${
@@ -149,23 +136,6 @@ export const Sidebar = React.memo(({ tone = 'dark' }: { tone?: 'light' | 'dark' 
               <PanelLeftClose size={16} strokeWidth={1.8} />
             )}
             {!collapsed && <span>{t('nav.collapse')}</span>}
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleLanguage}
-            title={collapsed ? currentLang.label : undefined}
-            aria-label={`Switch language. Current language ${currentLang.label}`}
-            className={`flex w-full items-center rounded-[18px] px-3 py-3 text-[12px] font-medium transition-colors duration-200 ${
-              collapsed ? 'justify-center' : 'gap-3'
-            } ${
-              light
-                ? 'text-[#84789c] hover:bg-white/70 hover:text-[#3b2d55]'
-                : 'text-white/42 hover:bg-white/[0.04] hover:text-white/72'
-            }`}
-          >
-            <Globe size={16} strokeWidth={1.8} />
-            {!collapsed && <span>{currentLang.label}</span>}
           </button>
 
           <NavLink

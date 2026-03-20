@@ -28,7 +28,7 @@ const Settings = lazy(() =>
 function RouteLoader() {
   return (
     <div className="flex min-h-[40vh] items-center justify-center px-6">
-      <div className="surface-panel rounded-full px-4 py-3 text-[12px] font-medium text-white/58">
+      <div className="rounded-full border border-[#e7def3] bg-white px-4 py-3 text-[12px] font-medium text-[#776b8f] shadow-[0_12px_34px_rgba(188,177,220,0.2)]">
         Loading view...
       </div>
     </div>
@@ -57,8 +57,8 @@ export default function App() {
 
   if (checking) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="surface-panel rounded-full p-4">
+      <div className="flex h-screen items-center justify-center bg-[linear-gradient(180deg,#f7f3fb_0%,#fdfbfd_42%,#f2eef8_100%)]">
+        <div className="rounded-full border border-[#e7def3] bg-white p-4 shadow-[0_14px_40px_rgba(188,177,220,0.24)]">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       </div>
@@ -73,17 +73,17 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <Toaster
-          theme="dark"
+          theme="light"
           position="top-right"
           toastOptions={{
             style: {
-              background:
-                'linear-gradient(180deg, rgba(28,28,35,0.96), rgba(17,18,24,0.92))',
-              backdropFilter: 'blur(28px)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.9)',
+              background: 'rgba(255,255,255,0.92)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(231,223,243,1)',
+              color: '#352a4d',
               fontSize: '13px',
               borderRadius: '20px',
+              boxShadow: '0 16px 44px rgba(188,177,220,0.18)',
             },
           }}
         />
