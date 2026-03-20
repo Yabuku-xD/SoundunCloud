@@ -56,7 +56,7 @@ function AppRoot() {
       return;
     }
 
-    void invoke("main_window_start_dragging");
+    void windowHandle.startDragging();
   };
 
   const syncShellWebviewBounds = useCallback(async () => {
@@ -119,22 +119,6 @@ function AppRoot() {
           "SoundunCloud could not launch the embedded SoundCloud shell.",
         ),
       );
-    }
-  }, [syncShellWebviewBounds]);
-
-  const restoreShellWebview = useCallback(async () => {
-    try {
-      const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
-      if (!existing) {
-        setShellPhase("idle");
-        return;
-      }
-
-      await syncShellWebviewBounds();
-      await existing.show();
-      setShellPhase("ready");
-    } catch {
-      setShellPhase("idle");
     }
   }, [syncShellWebviewBounds]);
 
@@ -245,7 +229,7 @@ function AppRoot() {
 
   useEffect(() => {
     void windowHandle.center();
-    void restoreShellWebview();
+    void ensureShellWebview();
 
     let cancelled = false;
 
@@ -266,7 +250,7 @@ function AppRoot() {
       void resizeListener.then((unlisten) => unlisten());
       void scaleListener.then((unlisten) => unlisten());
     };
-  }, [restoreShellWebview, syncShellWebviewBounds]);
+  }, [ensureShellWebview, syncShellWebviewBounds]);
 
   useEffect(() => {
     if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
@@ -387,7 +371,7 @@ function LaunchGate({
                 Open in browser
               </button>
             </>
-          ) : (
+          ) : !isLaunching ? (
             <button
               className="button button--primary button--launch"
               disabled={isLaunching}
@@ -397,7 +381,7 @@ function LaunchGate({
               {isLaunching ? <LoaderCircle className="spin" size={15} /> : null}
               {isLaunching ? "Opening SoundCloud" : "Open SoundCloud"}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </section>
@@ -407,17 +391,17 @@ function LaunchGate({
 function WindowControls() {
   const handleMinimize = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    void invoke("main_window_minimize");
+    void windowHandle.minimize();
   };
 
   const handleToggleMaximize = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    void invoke("main_window_toggle_maximize");
+    void windowHandle.toggleMaximize();
   };
 
   const handleClose = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    void invoke("main_window_close");
+    void windowHandle.close();
   };
 
   return (
