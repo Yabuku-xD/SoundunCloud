@@ -16,6 +16,7 @@ use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
+use url::Url;
 
 const CONFIG_FILE_NAME: &str = "sounduncloud-config.json";
 const SESSION_FILE_NAME: &str = "sounduncloud-session.json";
@@ -27,12 +28,95 @@ const SESSION_SECRET_ENTRY: &str = "oauth-session";
 const REFRESH_GRACE_SECONDS: u64 = 45;
 const SOUNDCLOUD_WEBVIEW_LABEL: &str = "soundcloud-shell";
 const SOUNDCLOUD_POPUP_LABEL_PREFIX: &str = "soundcloud-popup";
-const SOUNDCLOUD_HOME_URL: &str = "https://soundcloud.com/signin";
+const SOUNDCLOUD_BASE_URL: &str = "https://soundcloud.com";
+const SOUNDCLOUD_HOME_URL: &str = "https://soundcloud.com/stream";
 const SHELL_PADDING: f64 = 18.0;
 const SHELL_TOP_INSET: f64 = 78.0;
 const SHELL_BOTTOM_INSET: f64 = 82.0;
 const MIN_WEBVIEW_HEIGHT: f64 = 420.0;
 const MIN_WEBVIEW_WIDTH: f64 = 720.0;
+const SOUNDCLOUD_SHELL_PATCH_SCRIPT: &str = r####"
+(() => {
+  const STYLE_ID = "sounduncloud-shell-style";
+  const STYLE_TEXT = `
+    html, body, #app {
+      background: #0b0c10 !important;
+    }
+    .header,
+    .announcements,
+    .l-product-banners,
+    .mobileAppsBanner,
+    .mobileTeaser,
+    .l-footer {
+      display: none !important;
+    }
+    #content,
+    .l-content,
+    .l-main,
+    .l-inner,
+    .l-container,
+    .l-fullwidth,
+    .l-two-column,
+    .l-one-column {
+      max-width: none !important;
+      width: 100% !important;
+      margin-top: 0 !important;
+      padding-top: 0 !important;
+    }
+    .playControls {
+      background: rgba(9, 10, 14, 0.96) !important;
+      border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+  `;
+
+  const apply = () => {
+    const head = document.head || document.documentElement;
+    if (!head) {
+      return;
+    }
+
+    let style = document.getElementById(STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = STYLE_ID;
+      head.appendChild(style);
+    }
+
+    if (style.textContent !== STYLE_TEXT) {
+      style.textContent = STYLE_TEXT;
+    }
+
+    document.documentElement.style.background = "#0b0c10";
+    if (document.body) {
+      document.body.style.background = "#0b0c10";
+    }
+  };
+
+  apply();
+
+  if (!window.__sounduncloudShellPatched) {
+    window.__sounduncloudShellPatched = true;
+    const observer = new MutationObserver(() => apply());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    const resync = () => window.setTimeout(apply, 0);
+    for (const key of ["pushState", "replaceState"]) {
+      const original = history[key];
+      if (typeof original !== "function") {
+        continue;
+      }
+
+      history[key] = function (...args) {
+        const result = original.apply(this, args);
+        resync();
+        return result;
+      };
+    }
+
+    window.addEventListener("popstate", resync);
+  }
+})();
+"####;
 
 static POPUP_COUNTER: AtomicU32 = AtomicU32::new(1);
 
@@ -311,8 +395,31 @@ fn main_window_close(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn launch_soundcloud_shell(app: AppHandle) -> Result<(), String> {
-    if app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL).is_some() {
+fn launch_soundcloud_shell(app: AppHandle, target: Option<String>) -> Result<(), String> {
+    launch_soundcloud_shell_inner(app, target.as_deref())
+}
+
+#[tauri::command]
+fn navigate_soundcloud_shell(app: AppHandle, target: String) -> Result<(), String> {
+    let target_url = resolve_soundcloud_target(Some(target.as_str()))?;
+
+    if let Some(webview) = app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL) {
+        webview
+            .navigate(target_url)
+            .map_err(|error| format!("Could not navigate the SoundCloud shell: {error}"))?;
+        return Ok(());
+    }
+
+    launch_soundcloud_shell_inner(app, Some(target.as_str()))
+}
+
+fn launch_soundcloud_shell_inner(app: AppHandle, target: Option<&str>) -> Result<(), String> {
+    let shell_url = resolve_soundcloud_target(target)?;
+
+    if let Some(webview) = app.get_webview(SOUNDCLOUD_WEBVIEW_LABEL) {
+        webview
+            .navigate(shell_url)
+            .map_err(|error| format!("Could not navigate the SoundCloud shell: {error}"))?;
         return Ok(());
     }
 
@@ -326,9 +433,6 @@ fn launch_soundcloud_shell(app: AppHandle) -> Result<(), String> {
             return;
         }
 
-        let Ok(shell_url) = SOUNDCLOUD_HOME_URL.parse() else {
-            return;
-        };
         let Ok(inner_size) = window.inner_size() else {
             return;
         };
@@ -347,14 +451,17 @@ fn launch_soundcloud_shell(app: AppHandle) -> Result<(), String> {
             WebviewBuilder::new(SOUNDCLOUD_WEBVIEW_LABEL, WebviewUrl::External(shell_url))
                 .zoom_hotkeys_enabled(true)
                 .background_color((5, 5, 6, 255).into())
-                .on_page_load(move |_webview, payload| {
+                .on_page_load(move |webview, payload| {
                     if !matches!(payload.event(), PageLoadEvent::Finished) {
                         return;
                     }
 
                     let current_url = payload.url();
-                    let is_soundcloud = matches!(current_url.host_str(), Some("soundcloud.com" | "www.soundcloud.com"));
-                    let should_close_auth_popups = is_soundcloud
+                    if is_soundcloud_url(current_url) {
+                        let _ = webview.eval(SOUNDCLOUD_SHELL_PATCH_SCRIPT);
+                    }
+
+                    let should_close_auth_popups = is_soundcloud_url(current_url)
                         && !current_url.path().starts_with("/signin")
                         && !current_url.path().starts_with("/connect")
                         && !current_url.path().starts_with("/oauth");
@@ -385,11 +492,10 @@ fn launch_soundcloud_shell(app: AppHandle) -> Result<(), String> {
 
                         let current_url = payload.url();
                         let is_blank = current_url.scheme() == "about";
-                        let is_close_hint = matches!(
-                            current_url.host_str(),
-                            Some("soundcloud.com" | "www.soundcloud.com")
-                        ) && current_url.path() == "/"
-                            && current_url.query().is_none();
+                        let is_close_hint =
+                            is_soundcloud_url(current_url)
+                                && current_url.path() == "/"
+                                && current_url.query().is_none();
 
                         if is_blank || is_close_hint {
                             let _ = window.close();
@@ -506,6 +612,34 @@ fn close_soundcloud_popups(app: &AppHandle) {
             let _ = window.close();
         }
     }
+}
+
+fn is_soundcloud_url(url: &Url) -> bool {
+    matches!(url.host_str(), Some("soundcloud.com" | "www.soundcloud.com"))
+}
+
+fn resolve_soundcloud_target(target: Option<&str>) -> Result<Url, String> {
+    let raw = target.unwrap_or(SOUNDCLOUD_HOME_URL).trim();
+
+    if raw.is_empty() {
+        return Url::parse(SOUNDCLOUD_HOME_URL)
+            .map_err(|error| format!("Could not parse the SoundCloud URL: {error}"));
+    }
+
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        let parsed =
+            Url::parse(raw).map_err(|error| format!("Could not parse the SoundCloud URL: {error}"))?;
+
+        if !is_soundcloud_url(&parsed) {
+            return Err("SoundunCloud only navigates to SoundCloud URLs.".to_string());
+        }
+
+        return Ok(parsed);
+    }
+
+    Url::parse(SOUNDCLOUD_BASE_URL)
+        .and_then(|base| base.join(raw.trim_start_matches('/')))
+        .map_err(|error| format!("Could not build the SoundCloud URL: {error}"))
 }
 
 fn load_session_metadata(app: &AppHandle) -> Result<Option<StoredSessionMetadata>, String> {
@@ -715,6 +849,7 @@ pub fn run() {
             clear_local_session,
             desktop_context,
             launch_soundcloud_shell,
+            navigate_soundcloud_shell,
             load_personalized_home,
             load_sounduncloud_snapshot,
             main_window_close,

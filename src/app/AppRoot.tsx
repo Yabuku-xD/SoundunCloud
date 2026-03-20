@@ -1,39 +1,27 @@
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
-import {
-  ArrowUpRight,
-  LogIn,
-  ExternalLink,
-  LoaderCircle,
-  Minus,
-  RefreshCw,
-  Square,
-  X,
-} from "lucide-react";
-import { type MouseEvent, useCallback, useEffect, useState } from "react";
+import { ArrowUpRight, LoaderCircle, Minus, Square, X } from "lucide-react";
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import soundCloudLogoWhite from "../assets/soundcloud-logo-white.png";
 import { loadJson, saveJson } from "../lib/storage";
 import type {
   AppFeedback,
-  AuthLaunch,
   PersonalizedHome,
   SoundCloudTrack,
   SoundunCloudSnapshot,
 } from "../types";
+import { HybridShell, type HybridShellView } from "./HybridShell";
 import { NativeWorkspace, type NativeView } from "./NativeWorkspace";
 
 const windowHandle = getCurrentWebviewWindow();
 
-const AUTH_EVENT_ERROR = "sounduncloud://auth-error";
-const AUTH_EVENT_SUCCESS = "sounduncloud://auth-success";
 const RECENT_TRACK_URNS_STORAGE_KEY = "sounduncloud.recent-track-urns";
 const SOUNDCLOUD_WEBVIEW_LABEL = "soundcloud-shell";
-const SOUNDCLOUD_HOME_URL = "https://soundcloud.com/signin";
+const SOUNDCLOUD_HOME_URL = "https://soundcloud.com/stream";
 const SHELL_PADDING = 18;
 const SHELL_TOP_INSET = 78;
 const SHELL_BOTTOM_INSET = 82;
@@ -41,7 +29,7 @@ const MIN_WEBVIEW_HEIGHT = 420;
 const MIN_WEBVIEW_WIDTH = 720;
 
 type AvailableUpdate = Exclude<Awaited<ReturnType<typeof check>>, null>;
-type ExperienceMode = "booting" | "native" | "native-auth" | "web-shell";
+type ExperienceMode = "booting" | "native" | "hybrid-shell";
 type ShellPhase = "idle" | "launching" | "ready" | "error";
 
 type UpdateFabState =
@@ -56,6 +44,7 @@ type UpdateFabState =
 function AppRoot() {
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("booting");
   const [nativeView, setNativeView] = useState<NativeView>("home");
+  const [shellView, setShellView] = useState<HybridShellView>("home");
   const [shellPhase, setShellPhase] = useState<ShellPhase>("idle");
   const [shellError, setShellError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SoundunCloudSnapshot | null>(null);
@@ -63,21 +52,15 @@ function AppRoot() {
   const [currentTrack, setCurrentTrack] = useState<SoundCloudTrack | null>(null);
   const [nativeFeedback, setNativeFeedback] = useState<AppFeedback | null>(null);
   const [isLoadingNativeHome, setIsLoadingNativeHome] = useState(false);
-  const [isStartingLogin, setIsStartingLogin] = useState(false);
   const [recentTrackUrns, setRecentTrackUrns] = useState<string[]>(() =>
     loadJson<string[]>(RECENT_TRACK_URNS_STORAGE_KEY, []),
   );
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
-  const [updateFabState, setUpdateFabState] = useState<UpdateFabState>({
-    kind: "idle",
-  });
+  const [updateFabState, setUpdateFabState] = useState<UpdateFabState>({ kind: "idle" });
+  const shellViewportRef = useRef<HTMLDivElement | null>(null);
 
   const isCheckingUpdates = updateFabState.kind === "checking";
   const isInstallingUpdate = updateFabState.kind === "installing";
-  const isNativeExperience =
-    experienceMode === "booting" ||
-    experienceMode === "native" ||
-    experienceMode === "native-auth";
 
   const handleShellPointerDown = (event: MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
@@ -93,6 +76,19 @@ function AppRoot() {
     const shellWebview = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
     if (!shellWebview) {
       return;
+    }
+
+    const viewport = shellViewportRef.current;
+    if (experienceMode === "hybrid-shell" && viewport) {
+      const rect = viewport.getBoundingClientRect();
+
+      if (rect.width > 48 && rect.height > 48) {
+        await Promise.all([
+          shellWebview.setPosition(new LogicalPosition(rect.left, rect.top)),
+          shellWebview.setSize(new LogicalSize(rect.width, rect.height)),
+        ]);
+        return;
+      }
     }
 
     const [innerSize, scaleFactor] = await Promise.all([
@@ -113,44 +109,53 @@ function AppRoot() {
       shellWebview.setPosition(new LogicalPosition(SHELL_PADDING, SHELL_TOP_INSET)),
       shellWebview.setSize(new LogicalSize(width, height)),
     ]);
-  }, []);
+  }, [experienceMode]);
 
-  const ensureShellWebview = useCallback(async () => {
-    setShellPhase("launching");
-    setShellError(null);
-
-    try {
-      const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
-      if (existing) {
-        await syncShellWebviewBounds();
-        await existing.show();
-        await existing.setFocus();
-        setShellPhase("ready");
-        return;
-      }
-
-      await invoke("launch_soundcloud_shell");
-
-      const shellWebview = await waitForShellWebview();
-      if (!shellWebview) {
-        throw new Error("SoundunCloud created the shell, but it never became addressable.");
-      }
-
-      await syncShellWebviewBounds();
-      await shellWebview.show();
-      await shellWebview.setFocus();
+  const ensureShellWebview = useCallback(
+    async (target?: string) => {
+      setShellPhase("launching");
       setShellError(null);
-      setShellPhase("ready");
-    } catch (error) {
-      setShellPhase("error");
-      setShellError(
-        formatUnknownError(
-          error,
-          "SoundunCloud could not launch the embedded SoundCloud shell.",
-        ),
-      );
-    }
-  }, [syncShellWebviewBounds]);
+
+      try {
+        const nextTarget = target ?? getShellViewUrl(shellView);
+        const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
+
+        if (existing) {
+          await invoke("navigate_soundcloud_shell", {
+            target: nextTarget,
+          });
+          await syncShellWebviewBounds();
+          await existing.show();
+          await existing.setFocus();
+          setShellPhase("ready");
+          return;
+        }
+
+        await invoke("launch_soundcloud_shell", {
+          target: nextTarget,
+        });
+
+        const shellWebview = await waitForShellWebview();
+        if (!shellWebview) {
+          throw new Error("SoundunCloud created the shell, but it never became addressable.");
+        }
+
+        await syncShellWebviewBounds();
+        await shellWebview.show();
+        await shellWebview.setFocus();
+        setShellPhase("ready");
+      } catch (error) {
+        setShellPhase("error");
+        setShellError(
+          formatUnknownError(
+            error,
+            "SoundunCloud could not launch the embedded SoundCloud shell.",
+          ),
+        );
+      }
+    },
+    [shellView, syncShellWebviewBounds],
+  );
 
   const closeShellWebview = useCallback(async () => {
     const existing = await Webview.getByLabel(SOUNDCLOUD_WEBVIEW_LABEL);
@@ -189,24 +194,19 @@ function AppRoot() {
         setExperienceMode("native");
       } catch (error) {
         setNativeFeedback({
-          tone: "error",
+          tone: "info",
           message: formatUnknownError(
             error,
-            "SoundunCloud could not load the native workspace.",
+            "Native API mode is unavailable right now, so SoundunCloud is using the desktop shell instead.",
           ),
         });
-
-        if (nextSnapshot?.oauthConfigured) {
-          setExperienceMode("native-auth");
-        } else {
-          setExperienceMode("web-shell");
-          await ensureShellWebview();
-        }
+        setExperienceMode("hybrid-shell");
+        await ensureShellWebview(getShellViewUrl(shellView));
       } finally {
         setIsLoadingNativeHome(false);
       }
     },
-    [closeShellWebview, ensureShellWebview, recentTrackUrns],
+    [closeShellWebview, ensureShellWebview, recentTrackUrns, shellView],
   );
 
   const bootstrapExperience = useCallback(async () => {
@@ -216,14 +216,8 @@ function AppRoot() {
       const loadedSnapshot = await loadSnapshot();
       setSnapshot(loadedSnapshot);
 
-      if (loadedSnapshot.oauthConfigured) {
-        if (loadedSnapshot.hasLocalSession) {
-          await loadNativeHome(loadedSnapshot);
-        } else {
-          setHome(null);
-          setCurrentTrack(null);
-          setExperienceMode("native-auth");
-        }
+      if (loadedSnapshot.oauthConfigured && loadedSnapshot.hasLocalSession) {
+        await loadNativeHome(loadedSnapshot);
         return;
       }
     } catch (error) {
@@ -231,19 +225,19 @@ function AppRoot() {
         tone: "info",
         message: formatUnknownError(
           error,
-          "Native mode is unavailable right now, so SoundunCloud is falling back to the web shell.",
+          "SoundunCloud could not load native API mode, so it is falling back to the desktop shell.",
         ),
       });
     }
 
-    setExperienceMode("web-shell");
-    await ensureShellWebview();
-  }, [ensureShellWebview, loadNativeHome, loadSnapshot]);
+    setExperienceMode("hybrid-shell");
+    await ensureShellWebview(getShellViewUrl(shellView));
+  }, [ensureShellWebview, loadNativeHome, loadSnapshot, shellView]);
 
   const recreateShellWebview = useCallback(async () => {
     await closeShellWebview();
-    await ensureShellWebview();
-  }, [closeShellWebview, ensureShellWebview]);
+    await ensureShellWebview(getShellViewUrl(shellView));
+  }, [closeShellWebview, ensureShellWebview, shellView]);
 
   const rememberTrack = useCallback((track: SoundCloudTrack) => {
     setCurrentTrack(track);
@@ -259,59 +253,30 @@ function AppRoot() {
       const nextSnapshot = await loadSnapshot();
       setSnapshot(nextSnapshot);
 
-      if (!nextSnapshot.oauthConfigured) {
-        setNativeFeedback({
-          tone: "info",
-          message:
-            "Native mode still needs the SoundunCloud auth service. Using the web shell instead.",
-        });
-        setExperienceMode("web-shell");
-        await ensureShellWebview();
+      if (nextSnapshot.oauthConfigured && nextSnapshot.hasLocalSession) {
+        await loadNativeHome(nextSnapshot);
         return;
       }
 
-      if (!nextSnapshot.hasLocalSession) {
-        setHome(null);
-        setCurrentTrack(null);
-        setExperienceMode("native-auth");
-        return;
-      }
-
-      await loadNativeHome(nextSnapshot);
+      setExperienceMode("hybrid-shell");
+      await ensureShellWebview(getShellViewUrl(shellView));
     } catch (error) {
-      setNativeFeedback({
-        tone: "error",
-        message: formatUnknownError(error, "SoundunCloud could not refresh native mode."),
-      });
-    }
-  }, [ensureShellWebview, loadNativeHome, loadSnapshot]);
-
-  const startNativeLogin = useCallback(async () => {
-    setIsStartingLogin(true);
-    setNativeFeedback({
-      tone: "info",
-      message: "Opening SoundCloud sign-in in your browser.",
-    });
-
-    try {
-      const launch = await invoke<AuthLaunch>("begin_soundcloud_login");
-      await openUrl(launch.authorizeUrl);
-    } catch (error) {
-      setIsStartingLogin(false);
       setNativeFeedback({
         tone: "error",
         message: formatUnknownError(
           error,
-          "SoundunCloud could not start the SoundCloud sign-in flow.",
+          "SoundunCloud could not refresh native mode, so the shell stayed on the embedded site.",
         ),
       });
+      setExperienceMode("hybrid-shell");
+      await ensureShellWebview(getShellViewUrl(shellView));
     }
-  }, []);
+  }, [ensureShellWebview, loadNativeHome, loadSnapshot, shellView]);
 
   const handleOpenWebShell = useCallback(async () => {
-    setExperienceMode("web-shell");
-    await ensureShellWebview();
-  }, [ensureShellWebview]);
+    setExperienceMode("hybrid-shell");
+    await ensureShellWebview(getShellViewUrl(shellView));
+  }, [ensureShellWebview, shellView]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -329,20 +294,30 @@ function AppRoot() {
       setCurrentTrack(null);
       setNativeFeedback({
         tone: "info",
-        message: "Signed out from native mode on this device.",
+        message: "Signed out from native API mode on this device.",
       });
-      setExperienceMode(snapshot?.oauthConfigured ? "native-auth" : "web-shell");
-
-      if (!snapshot?.oauthConfigured) {
-        await ensureShellWebview();
-      }
+      setExperienceMode("hybrid-shell");
+      await ensureShellWebview(getShellViewUrl(shellView));
     } catch (error) {
       setNativeFeedback({
         tone: "error",
         message: formatUnknownError(error, "SoundunCloud could not clear the local session."),
       });
     }
-  }, [ensureShellWebview, snapshot?.oauthConfigured]);
+  }, [ensureShellWebview, shellView]);
+
+  const handleShellViewChange = useCallback(
+    (nextView: HybridShellView) => {
+      setShellView(nextView);
+      setNativeFeedback(null);
+
+      if (experienceMode !== "native") {
+        setExperienceMode("hybrid-shell");
+        void ensureShellWebview(getShellViewUrl(nextView));
+      }
+    },
+    [ensureShellWebview, experienceMode],
+  );
 
   const checkForUpdates = useCallback(async () => {
     setAvailableUpdate(null);
@@ -437,7 +412,7 @@ function AppRoot() {
   };
 
   const handleOpenInBrowser = async () => {
-    await openUrl(SOUNDCLOUD_HOME_URL);
+    await openUrl(getShellViewUrl(shellView));
   };
 
   useEffect(() => {
@@ -466,46 +441,25 @@ function AppRoot() {
   }, [bootstrapExperience, syncShellWebviewBounds]);
 
   useEffect(() => {
-    const successListener = listen(AUTH_EVENT_SUCCESS, async () => {
-      setIsStartingLogin(false);
-      setNativeFeedback({
-        tone: "success",
-        message: "Signed in. Loading your SoundCloud workspace.",
-      });
+    if (experienceMode !== "hybrid-shell") {
+      return;
+    }
 
-      try {
-        const nextSnapshot = await loadSnapshot();
-        setSnapshot(nextSnapshot);
-        await loadNativeHome(nextSnapshot);
-      } catch (error) {
-        setNativeFeedback({
-          tone: "error",
-          message: formatUnknownError(
-            error,
-            "SoundunCloud could not finalize the SoundCloud sign-in flow.",
-          ),
-        });
-        setExperienceMode("native-auth");
-      }
+    const viewport = shellViewportRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") {
+      void syncShellWebviewBounds();
+      return;
+    }
+
+    void syncShellWebviewBounds();
+
+    const observer = new ResizeObserver(() => {
+      void syncShellWebviewBounds();
     });
+    observer.observe(viewport);
 
-    const errorListener = listen<string>(AUTH_EVENT_ERROR, (event) => {
-      setIsStartingLogin(false);
-      setNativeFeedback({
-        tone: "error",
-        message:
-          typeof event.payload === "string" && event.payload.trim()
-            ? event.payload.trim()
-            : "SoundCloud sign-in did not finish.",
-      });
-      setExperienceMode("native-auth");
-    });
-
-    return () => {
-      void successListener.then((unlisten) => unlisten());
-      void errorListener.then((unlisten) => unlisten());
-    };
-  }, [loadNativeHome, loadSnapshot]);
+    return () => observer.disconnect();
+  }, [experienceMode, syncShellWebviewBounds]);
 
   useEffect(() => {
     if (updateFabState.kind !== "current" && updateFabState.kind !== "error") {
@@ -534,13 +488,7 @@ function AppRoot() {
   const updateFabPositionClass = experienceMode === "native" ? "update-fab--raised" : "";
 
   return (
-    <div
-      className={
-        isNativeExperience
-          ? "shell shell--native"
-          : `shell ${shellPhase === "ready" ? "shell--active" : ""}`
-      }
-    >
+    <div className="shell shell--native">
       <div className="shell__ambient" />
 
       <div className="window-frame">
@@ -548,25 +496,11 @@ function AppRoot() {
         <WindowControls />
       </div>
 
-      <main
-        className={`shell__stage ${isNativeExperience ? "shell__stage--native" : ""}`}
-        onMouseDown={handleShellPointerDown}
-      >
+      <main className="shell__stage shell__stage--native" onMouseDown={handleShellPointerDown}>
         {experienceMode === "booting" ? (
           <StatusGate
             detail="Loading SoundunCloud."
             title="Preparing your desktop workspace."
-          />
-        ) : null}
-
-        {experienceMode === "native-auth" ? (
-          <NativeSetupGate
-            feedback={nativeFeedback}
-            isConfigured={snapshot?.oauthConfigured ?? false}
-            isStartingLogin={isStartingLogin}
-            onOpenWebShell={handleOpenWebShell}
-            onRefresh={refreshNativeWorkspace}
-            onStartLogin={startNativeLogin}
           />
         ) : null}
 
@@ -586,19 +520,18 @@ function AppRoot() {
           />
         ) : null}
 
-        {experienceMode === "web-shell" && shellPhase !== "ready" ? (
-          <LaunchGate
-            detail={
-              shellPhase === "error"
-                ? shellError ??
-                  "SoundunCloud could not launch the embedded SoundCloud shell."
-                : "Opening the real SoundCloud site inside the app."
-            }
-            isError={shellPhase === "error"}
-            isLaunching={shellPhase === "launching"}
-            onLaunch={ensureShellWebview}
+        {experienceMode === "hybrid-shell" ? (
+          <HybridShell
+            feedback={nativeFeedback}
             onOpenInBrowser={handleOpenInBrowser}
+            onRefresh={refreshNativeWorkspace}
             onRetry={recreateShellWebview}
+            onViewChange={handleShellViewChange}
+            shellError={shellError}
+            shellPhase={shellPhase}
+            snapshot={snapshot}
+            view={shellView}
+            viewportRef={shellViewportRef}
           />
         ) : null}
       </main>
@@ -620,136 +553,6 @@ function AppRoot() {
         <span>{updateFabLabel}</span>
       </button>
     </div>
-  );
-}
-
-type LaunchGateProps = {
-  detail: string;
-  isError: boolean;
-  isLaunching: boolean;
-  onLaunch: () => Promise<void>;
-  onOpenInBrowser: () => Promise<void>;
-  onRetry: () => Promise<void>;
-};
-
-function LaunchGate({
-  detail,
-  isError,
-  isLaunching,
-  onLaunch,
-  onOpenInBrowser,
-  onRetry,
-}: LaunchGateProps) {
-  return (
-    <section className="launch-gate" aria-live="polite">
-      <div className="launch-gate__stack">
-        <img alt="SoundCloud" className="launch-gate__logo" src={soundCloudLogoWhite} />
-        <p className="launch-gate__eyebrow">
-          {isError ? "Shell launch failed" : "Local SoundCloud web shell"}
-        </p>
-        <h1 className="launch-gate__title">
-          {isError
-            ? "SoundCloud could not load in the desktop shell."
-            : "Open SoundCloud inside a cleaner desktop frame."}
-        </h1>
-        <p className="launch-gate__detail">{detail}</p>
-
-        <div className="launch-gate__actions">
-          {isError ? (
-            <>
-              <button className="button button--primary" onClick={() => void onRetry()} type="button">
-                <RefreshCw size={15} />
-                Retry inside app
-              </button>
-              <button
-                className="button button--ghost"
-                onClick={() => void onOpenInBrowser()}
-                type="button"
-              >
-                <ExternalLink size={15} />
-                Open in browser
-              </button>
-            </>
-          ) : !isLaunching ? (
-            <button
-              className="button button--primary button--launch"
-              disabled={isLaunching}
-              onClick={() => void onLaunch()}
-              type="button"
-            >
-              {isLaunching ? <LoaderCircle className="spin" size={15} /> : null}
-              {isLaunching ? "Opening SoundCloud" : "Open SoundCloud"}
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-type NativeSetupGateProps = {
-  feedback: AppFeedback | null;
-  isConfigured: boolean;
-  isStartingLogin: boolean;
-  onOpenWebShell: () => Promise<void>;
-  onRefresh: () => Promise<void>;
-  onStartLogin: () => Promise<void>;
-};
-
-function NativeSetupGate({
-  feedback,
-  isConfigured,
-  isStartingLogin,
-  onOpenWebShell,
-  onRefresh,
-  onStartLogin,
-}: NativeSetupGateProps) {
-  return (
-    <section className="status-gate" aria-live="polite">
-      <div className="status-gate__panel native-panel">
-        <img alt="SoundCloud" className="status-gate__logo" src={soundCloudLogoWhite} />
-        <p className="status-gate__eyebrow">Native SoundCloud mode</p>
-        <h1 className="status-gate__title">
-          {isConfigured
-            ? "Connect SoundCloud for the native workspace."
-            : "Native mode needs the auth service first."}
-        </h1>
-        <p className="status-gate__detail">
-          {isConfigured
-            ? "This turns SoundunCloud into a real custom desktop client with your feed, likes, playlists, and recent tracks."
-            : "The current repo can render a custom client, but it still needs `SOUNDUNCLOUD_AUTH_BASE_URL` and the optional auth service configured first."}
-        </p>
-
-        {feedback ? (
-          <div className={`feedback-banner feedback-banner--${feedback.tone}`}>
-            {feedback.message}
-          </div>
-        ) : null}
-
-        <div className="status-gate__actions">
-          {isConfigured ? (
-            <button
-              className="button button--primary"
-              disabled={isStartingLogin}
-              onClick={() => void onStartLogin()}
-              type="button"
-            >
-              {isStartingLogin ? <LoaderCircle className="spin" size={15} /> : <LogIn size={15} />}
-              {isStartingLogin ? "Waiting for SoundCloud" : "Connect SoundCloud"}
-            </button>
-          ) : (
-            <button className="button button--ghost" onClick={() => void onRefresh()} type="button">
-              <RefreshCw size={15} />
-              Recheck native mode
-            </button>
-          )}
-          <button className="button button--ghost" onClick={() => void onOpenWebShell()} type="button">
-            <ExternalLink size={15} />
-            Use web shell
-          </button>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -867,6 +670,19 @@ function formatUnknownError(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function getShellViewUrl(view: HybridShellView) {
+  switch (view) {
+    case "likes":
+      return "https://soundcloud.com/you/likes";
+    case "library":
+      return "https://soundcloud.com/you/library";
+    case "discover":
+      return "https://soundcloud.com/discover";
+    default:
+      return SOUNDCLOUD_HOME_URL;
+  }
 }
 
 async function waitForShellWebview() {

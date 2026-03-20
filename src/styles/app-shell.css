@@ -298,6 +298,13 @@ input:focus-visible {
   padding-bottom: 174px;
 }
 
+.hybrid-shell {
+  display: grid;
+  grid-template-columns: 254px minmax(0, 1fr);
+  gap: 18px;
+  min-height: calc(100vh - 138px);
+}
+
 .native-panel {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 24px;
@@ -315,15 +322,36 @@ input:focus-visible {
 }
 
 .native-sidebar,
-.native-main {
+.native-main,
+.hybrid-sidebar,
+.hybrid-main {
   min-width: 0;
 }
 
-.native-sidebar {
+.native-sidebar,
+.hybrid-sidebar {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 20px;
+}
+
+.hybrid-sidebar__note {
+  padding: 14px;
+}
+
+.hybrid-sidebar__title,
+.hybrid-viewport__footer {
+  margin: 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.hybrid-sidebar__copy,
+.hybrid-topbar__copy,
+.hybrid-viewport__footer span:last-child {
+  margin: 0;
+  color: var(--text-soft);
 }
 
 .native-brand,
@@ -440,7 +468,8 @@ input:focus-visible {
   flex-wrap: wrap;
 }
 
-.native-main {
+.native-main,
+.hybrid-main {
   display: grid;
   gap: 18px;
 }
@@ -464,6 +493,14 @@ input:focus-visible {
   gap: 14px;
 }
 
+.hybrid-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 22px;
+}
+
 .native-topbar__title,
 .native-hero__title,
 .status-gate__title,
@@ -474,6 +511,54 @@ input:focus-visible {
 
 .native-topbar__title {
   font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.hybrid-viewport {
+  position: relative;
+  min-height: calc(100vh - 246px);
+  padding: 18px 18px 54px;
+  overflow: hidden;
+}
+
+.hybrid-viewport__frame {
+  width: 100%;
+  height: 100%;
+  min-height: calc(100vh - 318px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008)),
+    rgba(5, 6, 8, 0.94);
+}
+
+.hybrid-viewport__overlay {
+  position: absolute;
+  inset: 18px 18px 54px;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 6, 8, 0.72);
+}
+
+.hybrid-viewport__overlay-panel {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+}
+
+.hybrid-viewport__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.hybrid-viewport__footer {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.82rem;
 }
 
 .native-hero {
@@ -680,6 +765,11 @@ input:focus-visible {
   .button--launch {
     min-width: 0;
     width: 100%;
+  }
+
+  .hybrid-shell,
+  .native-shell {
+    grid-template-columns: 1fr;
   }
 }
 

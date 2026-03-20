@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.1 - 2026-03-20
+
+- Replaced the hidden auth-gated fallback with a visible hybrid native shell that wraps the logged-in SoundCloud site inside SoundunCloud's own sidebar and header
+- Added in-app navigation for Home, Likes, Library, and Discover so the embedded SoundCloud webview follows the desktop shell instead of sitting as a raw browser page
+- Patched the embedded SoundCloud view with cleaner in-app styling so the browser-like top chrome disappears inside the desktop frame
+
 ## v0.6.0 - 2026-03-20
 
 - Added the first native SoundunCloud workspace with custom home, likes, playlists, recent tracks, and an embedded player when the optional auth-service mode is configured
