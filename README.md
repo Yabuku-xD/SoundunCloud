@@ -10,7 +10,7 @@
 
 An unofficial Windows desktop companion for SoundCloud listeners, built with Rust and Tauri.
 
-![Version](https://img.shields.io/badge/version-v0.4.0-F28C52)
+![Version](https://img.shields.io/badge/version-v0.4.1-F28C52)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-1f6feb)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%2B%20Tauri%20%2B%20React-111827)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
@@ -36,7 +36,7 @@ The current unofficial SoundCloud desktop ecosystem tends to fall into two extre
 
 - Keep the desktop shell native and light with Rust + Tauri.
 - Use SoundCloud's embeddable playback surfaces for listening.
-- Support authenticated desktop sign-in through the browser, using a backend-assisted OAuth flow that keeps the SoundCloud client secret out of the desktop app.
+- Support authenticated desktop sign-in through the browser, using a backend-assisted OAuth flow that keeps the SoundCloud client secret out of the desktop app while storing the user session on their own device.
 - Give the app a cleaner, darker, more media-forward layout than generic starter templates.
 
 SoundCloud's official developer docs currently describe authentication as OAuth 2.1 with PKCE, and they note that apps still need approved API credentials before sign-in can work:
@@ -50,7 +50,7 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 - Black-tinted glassmorphic frameless Windows desktop shell with floating window controls and Tauri packaging
 - Minimal SoundCloud-style startup gate with a single browser-based sign-in action
 - Official white-on-transparent SoundCloud wordmark on the startup surface
-- Backend-assisted browser OAuth bootstrap before the app home unlocks
+- Browser sign-in once per device, with secure local session persistence and silent refresh
 - Personalized signed-in home built from your SoundCloud feed, liked tracks, playlists, and recent desktop plays
 - Secure local storage for user tokens via OS-backed keyring storage
 - Embedded SoundCloud widget playback inside the app with a persistent desktop player dock
@@ -74,13 +74,15 @@ SoundCloud's official developer docs currently describe authentication as OAuth 
 ├───────────────────────────────┬────────────────────────────────────────────┤
 │ Rust auth service             │ SoundCloud                                 │
 │                               │                                            │
-│ • stores client secret        │ • authorizes the user in the browser       │
+│ • auth-only token broker      │ • authorizes the user in the browser       │
 │ • creates PKCE challenge      │ • returns auth code to the auth service    │
 │ • exchanges code for tokens   │ • serves /me, feed, likes, playlists       │
-│ • issues one-time desktop ticket│                                          │
+│ • seals short-lived auth state│                                            │
 │ • refreshes expired sessions  │                                            │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The auth service is intentionally stateless: it does not keep a user database or long-lived server session store. SoundunCloud stores the signed-in session locally on the user's machine in OS-backed secure storage, so the normal user experience is "sign in once on this device, then stay signed in."
 
 ## Install
 
@@ -133,6 +135,7 @@ The Rust auth service keeps the SoundCloud app credentials and handles token exc
 ```bash
 SOUNDCLOUD_CLIENT_ID=your_client_id
 SOUNDCLOUD_CLIENT_SECRET=your_client_secret
+SOUNDUNCLOUD_AUTH_SECRET=replace_with_a_long_random_secret
 SOUNDUNCLOUD_PUBLIC_BASE_URL=https://your-auth-service.example.com
 SOUNDUNCLOUD_BIND_ADDR=127.0.0.1:8787
 ```
@@ -140,12 +143,37 @@ SOUNDUNCLOUD_BIND_ADDR=127.0.0.1:8787
 An example file is included in [`.env.example`](./.env.example). For a public release, deploy the auth service, then point desktop builds at that public auth URL.
 You can provide `SOUNDUNCLOUD_AUTH_BASE_URL` as a runtime environment variable during development or bake it into packaged desktop builds through the build environment.
 
+### Cheap deployment path
+
+The current auth service is small enough to deploy without a database.
+
+- Cheapest fully free test path: Render free web service
+- Cheapest long-term low-friction paid path: Fly.io small VM
+- Current repo includes [`auth-service/Dockerfile`](./auth-service/Dockerfile) so you can deploy the auth service as a container without rewriting it
+
+For a public deployment you need:
+
+1. A SoundCloud app with a registered redirect URI
+2. A public auth service URL such as `https://sounduncloud-auth.example.com`
+3. These auth-service environment variables on the host:
+   - `SOUNDCLOUD_CLIENT_ID`
+   - `SOUNDCLOUD_CLIENT_SECRET`
+   - `SOUNDUNCLOUD_AUTH_SECRET`
+   - `SOUNDUNCLOUD_PUBLIC_BASE_URL`
+
+Once that host exists, rebuild the desktop app with:
+
+```bash
+SOUNDUNCLOUD_AUTH_BASE_URL=https://your-auth-service.example.com npm run tauri build
+```
+
 ## OAuth Notes
 
 - SoundCloud's current docs say OAuth uses OAuth 2.1 with PKCE.
 - The authorization URL is opened in the user's browser, not embedded in-app.
 - SoundCloud also notes that apps need registered credentials and that new API access still goes through an application/review process.
 - The docs currently say all clients are treated as confidential, which means a client secret is still required even for desktop-style flows. SoundunCloud therefore uses a backend-assisted exchange instead of shipping the client secret inside the `.exe`.
+- SoundunCloud keeps the user's session on their own machine. The backend is only used for auth exchange and refresh, not as the user's long-term feed/history database.
 
 For the official references, see:
 

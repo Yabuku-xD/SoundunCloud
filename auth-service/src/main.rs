@@ -1,3 +1,7 @@
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -6,29 +10,28 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
     net::SocketAddr,
-    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::Mutex;
 use tracing::{error, info};
 use url::Url;
 
 const DESKTOP_CALLBACK_URL: &str = "sounduncloud://auth/callback";
-const PENDING_AUTH_TTL_SECONDS: u64 = 10 * 60;
+const STATE_TOKEN_TTL_SECONDS: u64 = 10 * 60;
 const TICKET_TTL_SECONDS: u64 = 5 * 60;
+const STATE_TOKEN_KIND: &str = "sounduncloud.oauth.state";
+const TICKET_TOKEN_KIND: &str = "sounduncloud.desktop.ticket";
+const SEALED_TOKEN_NONCE_BYTES: usize = 12;
 
 #[derive(Clone)]
 struct AppState {
     client: Client,
     config: ServiceConfig,
-    store: Arc<Mutex<AuthStore>>,
 }
 
 #[derive(Clone)]
@@ -36,26 +39,7 @@ struct ServiceConfig {
     soundcloud_client_id: String,
     soundcloud_client_secret: String,
     public_base_url: String,
-}
-
-#[derive(Default)]
-struct AuthStore {
-    pending: HashMap<String, PendingAuth>,
-    tickets: HashMap<String, IssuedTicket>,
-}
-
-#[derive(Clone)]
-struct PendingAuth {
-    desktop_state: String,
-    code_verifier: String,
-    created_at: u64,
-}
-
-#[derive(Clone)]
-struct IssuedTicket {
-    desktop_state: String,
-    session: BrokeredSession,
-    created_at: u64,
+    auth_secret: [u8; 32],
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,6 +112,26 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedStatePayload {
+    kind: String,
+    desktop_state: String,
+    code_verifier: String,
+    issued_at: u64,
+    expires_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignedTicketPayload {
+    kind: String,
+    desktop_state: String,
+    session: BrokeredSession,
+    issued_at: u64,
+    expires_at: u64,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -138,19 +142,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let bind_addr = std::env::var("SOUNDUNCLOUD_BIND_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8787".to_string())
+        .ok()
+        .or_else(|| {
+            std::env::var("PORT")
+                .ok()
+                .map(|port| format!("0.0.0.0:{port}"))
+        })
+        .unwrap_or_else(|| "127.0.0.1:8787".to_string())
         .parse::<SocketAddr>()?;
 
     let config = ServiceConfig {
         soundcloud_client_id: required_env("SOUNDCLOUD_CLIENT_ID")?,
         soundcloud_client_secret: required_env("SOUNDCLOUD_CLIENT_SECRET")?,
         public_base_url: normalize_base_url(&required_env("SOUNDUNCLOUD_PUBLIC_BASE_URL")?)?,
+        auth_secret: derive_secret_key(&required_env("SOUNDUNCLOUD_AUTH_SECRET")?)?,
     };
 
     let state = AppState {
         client: Client::builder().timeout(Duration::from_secs(30)).build()?,
         config,
-        store: Arc::new(Mutex::new(AuthStore::default())),
     };
 
     let app = Router::new()
@@ -189,22 +199,19 @@ async fn start_oauth(
         ));
     }
 
-    let server_state = random_url_safe(40);
+    let issued_at = current_epoch_seconds();
     let code_verifier = random_url_safe(96);
     let code_challenge = pkce_challenge(&code_verifier);
-
-    {
-        let mut store = state.store.lock().await;
-        prune_store(&mut store);
-        store.pending.insert(
-            server_state.clone(),
-            PendingAuth {
-                desktop_state: query.desktop_state.clone(),
-                code_verifier,
-                created_at: current_epoch_seconds(),
-            },
-        );
-    }
+    let sealed_state = seal_payload(
+        &state.config.auth_secret,
+        &SignedStatePayload {
+            kind: STATE_TOKEN_KIND.into(),
+            desktop_state: query.desktop_state,
+            code_verifier,
+            issued_at,
+            expires_at: issued_at.saturating_add(STATE_TOKEN_TTL_SECONDS),
+        },
+    )?;
 
     let redirect_uri = service_url(&state.config.public_base_url, "/oauth/callback")?;
     let authorize_url = format!(
@@ -212,7 +219,7 @@ async fn start_oauth(
         urlencoding::encode(&state.config.soundcloud_client_id),
         urlencoding::encode(&redirect_uri),
         urlencoding::encode(&code_challenge),
-        urlencoding::encode(&server_state),
+        urlencoding::encode(&sealed_state),
     );
 
     Ok(Redirect::temporary(&authorize_url))
@@ -222,20 +229,13 @@ async fn oauth_callback(
     State(state): State<AppState>,
     Query(query): Query<CallbackQuery>,
 ) -> Result<Response, AppError> {
-    let Some(server_state) = query.state.clone() else {
+    let Some(sealed_state) = query.state.clone() else {
         return Err(AppError::bad_request(
             "SoundCloud did not return a valid sign-in state.",
         ));
     };
 
-    let pending = {
-        let mut store = state.store.lock().await;
-        prune_store(&mut store);
-        store.pending.remove(&server_state)
-    }
-    .ok_or_else(|| {
-        AppError::bad_request("This SoundCloud sign-in request expired or was already used.")
-    })?;
+    let pending = open_state_payload(&state.config.auth_secret, &sealed_state)?;
 
     if let Some(error) = query.error {
         let error_detail = query
@@ -268,28 +268,28 @@ async fn oauth_callback(
     )
     .await?;
     let user = fetch_authenticated_user(&state.client, &token.access_token).await?;
-    let session = BrokeredSession {
-        access_token: token.access_token,
-        refresh_token: token.refresh_token,
-        expires_at: current_epoch_seconds().saturating_add(token.expires_in),
-        user,
-    };
-    let ticket = random_url_safe(48);
-
-    {
-        let mut store = state.store.lock().await;
-        prune_store(&mut store);
-        store.tickets.insert(
-            ticket.clone(),
-            IssuedTicket {
-                desktop_state: pending.desktop_state.clone(),
-                session,
-                created_at: current_epoch_seconds(),
+    let issued_at = current_epoch_seconds();
+    let sealed_ticket = seal_payload(
+        &state.config.auth_secret,
+        &SignedTicketPayload {
+            kind: TICKET_TOKEN_KIND.into(),
+            desktop_state: pending.desktop_state.clone(),
+            session: BrokeredSession {
+                access_token: token.access_token,
+                refresh_token: token.refresh_token,
+                expires_at: issued_at.saturating_add(token.expires_in),
+                user,
             },
-        );
-    }
+            issued_at,
+            expires_at: issued_at.saturating_add(TICKET_TTL_SECONDS),
+        },
+    )?;
 
-    let deep_link = build_desktop_link(Some(&ticket), Some(&pending.desktop_state), None)?;
+    let deep_link = build_desktop_link(
+        Some(&sealed_ticket),
+        Some(&pending.desktop_state),
+        None,
+    )?;
 
     Ok(Html(render_handoff_page(
         "Opening SoundunCloud",
@@ -303,12 +303,7 @@ async fn exchange_ticket(
     State(state): State<AppState>,
     Json(request): Json<ExchangeTicketRequest>,
 ) -> Result<Json<BrokeredSession>, AppError> {
-    let issued = {
-        let mut store = state.store.lock().await;
-        prune_store(&mut store);
-        store.tickets.remove(&request.ticket)
-    }
-    .ok_or_else(|| AppError::bad_request("This sign-in ticket is missing or expired."))?;
+    let issued = open_ticket_payload(&state.config.auth_secret, &request.ticket)?;
 
     if issued.desktop_state != request.desktop_state {
         return Err(AppError::bad_request(
@@ -440,16 +435,6 @@ fn extract_api_error(body: &str) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-fn prune_store(store: &mut AuthStore) {
-    let now = current_epoch_seconds();
-    store
-        .pending
-        .retain(|_, pending| now.saturating_sub(pending.created_at) < PENDING_AUTH_TTL_SECONDS);
-    store
-        .tickets
-        .retain(|_, ticket| now.saturating_sub(ticket.created_at) < TICKET_TTL_SECONDS);
-}
-
 fn current_epoch_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -465,6 +450,12 @@ fn random_url_safe(length: usize) -> String {
         .collect()
 }
 
+fn random_nonce() -> [u8; SEALED_TOKEN_NONCE_BYTES] {
+    let mut bytes = [0u8; SEALED_TOKEN_NONCE_BYTES];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes
+}
+
 fn pkce_challenge(code_verifier: &str) -> String {
     let digest = Sha256::digest(code_verifier.as_bytes());
     URL_SAFE_NO_PAD.encode(digest)
@@ -478,6 +469,18 @@ fn normalize_base_url(raw: &str) -> Result<String, Box<dyn std::error::Error>> {
 
 fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
     std::env::var(name).map_err(|_| format!("Missing required environment variable: {name}").into())
+}
+
+fn derive_secret_key(raw: &str) -> Result<[u8; 32], Box<dyn std::error::Error>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("SOUNDUNCLOUD_AUTH_SECRET cannot be empty.".into());
+    }
+
+    let digest = Sha256::digest(trimmed.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    Ok(key)
 }
 
 fn is_valid_desktop_state(value: &str) -> bool {
@@ -532,6 +535,89 @@ fn render_handoff_page(title: &str, message: &str, deep_link: &str) -> String {
     )
 }
 
+fn seal_payload<T>(secret: &[u8; 32], payload: &T) -> Result<String, AppError>
+where
+    T: Serialize,
+{
+    let cipher = build_cipher(secret)?;
+    let nonce_bytes = random_nonce();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let plaintext = serde_json::to_vec(payload)
+        .map_err(|error| AppError::internal(format!("Could not encode auth payload: {error}")))?;
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_ref())
+        .map_err(|_| AppError::internal("Could not seal the auth payload."))?;
+
+    let mut sealed = nonce_bytes.to_vec();
+    sealed.extend(ciphertext);
+    Ok(URL_SAFE_NO_PAD.encode(sealed))
+}
+
+fn open_state_payload(secret: &[u8; 32], sealed: &str) -> Result<SignedStatePayload, AppError> {
+    let payload = open_payload::<SignedStatePayload>(secret, sealed)?;
+    validate_payload_window(
+        &payload.kind,
+        STATE_TOKEN_KIND,
+        payload.issued_at,
+        payload.expires_at,
+        "This SoundCloud sign-in request expired or was invalid.",
+    )?;
+    Ok(payload)
+}
+
+fn open_ticket_payload(secret: &[u8; 32], sealed: &str) -> Result<SignedTicketPayload, AppError> {
+    let payload = open_payload::<SignedTicketPayload>(secret, sealed)?;
+    validate_payload_window(
+        &payload.kind,
+        TICKET_TOKEN_KIND,
+        payload.issued_at,
+        payload.expires_at,
+        "This desktop sign-in ticket expired or was invalid.",
+    )?;
+    Ok(payload)
+}
+
+fn open_payload<T>(secret: &[u8; 32], sealed: &str) -> Result<T, AppError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let bytes = URL_SAFE_NO_PAD
+        .decode(sealed.as_bytes())
+        .map_err(|_| AppError::bad_request("The auth token could not be decoded."))?;
+
+    if bytes.len() <= SEALED_TOKEN_NONCE_BYTES {
+        return Err(AppError::bad_request("The auth token was incomplete."));
+    }
+
+    let (nonce_bytes, ciphertext) = bytes.split_at(SEALED_TOKEN_NONCE_BYTES);
+    let cipher = build_cipher(secret)?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .map_err(|_| AppError::bad_request("The auth token could not be verified."))?;
+
+    serde_json::from_slice::<T>(&plaintext)
+        .map_err(|_| AppError::bad_request("The auth token payload was malformed."))
+}
+
+fn build_cipher(secret: &[u8; 32]) -> Result<Aes256Gcm, AppError> {
+    Aes256Gcm::new_from_slice(secret)
+        .map_err(|error| AppError::internal(format!("Could not prepare auth encryption: {error}")))
+}
+
+fn validate_payload_window(
+    kind: &str,
+    expected_kind: &str,
+    issued_at: u64,
+    expires_at: u64,
+    message: &str,
+) -> Result<(), AppError> {
+    let now = current_epoch_seconds();
+    if kind != expected_kind || expires_at < now || issued_at > now.saturating_add(60) {
+        return Err(AppError::bad_request(message));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct AppError {
     status: StatusCode,
@@ -569,5 +655,53 @@ impl IntoResponse for AppError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sealed_state_round_trip_survives() {
+        let key = derive_secret_key("test-secret").unwrap();
+        let payload = SignedStatePayload {
+            kind: STATE_TOKEN_KIND.into(),
+            desktop_state: "A".repeat(32),
+            code_verifier: "B".repeat(64),
+            issued_at: current_epoch_seconds(),
+            expires_at: current_epoch_seconds() + 60,
+        };
+
+        let sealed = seal_payload(&key, &payload).unwrap();
+        let opened = open_state_payload(&key, &sealed).unwrap();
+
+        assert_eq!(opened.desktop_state, payload.desktop_state);
+        assert_eq!(opened.code_verifier, payload.code_verifier);
+    }
+
+    #[test]
+    fn expired_ticket_is_rejected() {
+        let key = derive_secret_key("test-secret").unwrap();
+        let payload = SignedTicketPayload {
+            kind: TICKET_TOKEN_KIND.into(),
+            desktop_state: "C".repeat(32),
+            session: BrokeredSession {
+                access_token: "access".into(),
+                refresh_token: Some("refresh".into()),
+                expires_at: current_epoch_seconds() + 3600,
+                user: AuthenticatedUser {
+                    username: "user".into(),
+                    full_name: None,
+                    permalink_url: None,
+                    avatar_url: None,
+                },
+            },
+            issued_at: current_epoch_seconds() - 120,
+            expires_at: current_epoch_seconds() - 60,
+        };
+
+        let sealed = seal_payload(&key, &payload).unwrap();
+        assert!(open_ticket_payload(&key, &sealed).is_err());
     }
 }

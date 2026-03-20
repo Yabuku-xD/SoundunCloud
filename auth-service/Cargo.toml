@@ -1,10 +1,11 @@
 [package]
 name = "sounduncloud-auth-service"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Backend-assisted SoundCloud OAuth service for SoundunCloud desktop"
 
 [dependencies]
+aes-gcm = { version = "0.10", features = ["std"] }
 axum = "0.8"
 base64 = "0.22"
 rand = "0.9"

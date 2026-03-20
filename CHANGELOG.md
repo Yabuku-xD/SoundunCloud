@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.1 - 2026-03-19
+
+- Reworked the auth service into a stateless local-first broker by sealing short-lived sign-in state and desktop tickets instead of keeping pending auth in server memory
+- Added deployment-ready auth-service container packaging so the browser OAuth broker can run on low-cost or free hosts without a database
+- Clarified the signed-out startup copy around the intended user flow: sign in once in the browser, then keep the session securely on that device
+- Added `SOUNDUNCLOUD_AUTH_SECRET` support and a `PORT` fallback so public auth deployments are easier to wire up
+
 ## v0.4.0 - 2026-03-19
 
 - Replaced the desktop's local client-secret OAuth flow with a backend-assisted browser OAuth architecture built for public multi-user installs

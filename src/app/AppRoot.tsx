@@ -465,7 +465,7 @@ function AppRoot() {
       setFeedback({
         tone: "info",
         message:
-          "SoundCloud opened in your browser. Approve access there and SoundunCloud will finish sign-in automatically.",
+          "SoundCloud opened in your browser. Approve access there once and SoundunCloud will keep this device signed in automatically.",
       });
     } catch (error) {
       setIsAuthorizing(false);
@@ -642,6 +642,7 @@ function AppRoot() {
           canSignIn={snapshot.oauthConfigured}
           isAuthorizing={isAuthorizing}
           onBeginLogin={handleBeginLogin}
+          readyHint="Sign in once in your browser. SoundunCloud keeps your session securely on this device."
           unavailableReason={
             snapshot.oauthConfigured
               ? null
@@ -912,6 +913,7 @@ type SignedOutGateProps = {
   canSignIn: boolean;
   isAuthorizing: boolean;
   onBeginLogin: () => void | Promise<void>;
+  readyHint?: string | null;
   unavailableReason?: string | null;
 };
 
@@ -919,6 +921,7 @@ function SignedOutGate({
   canSignIn,
   isAuthorizing,
   onBeginLogin,
+  readyHint,
   unavailableReason,
 }: SignedOutGateProps) {
   return (
@@ -949,6 +952,10 @@ function SignedOutGate({
         {unavailableReason ? (
           <p className="gate__hint" role="status">
             {unavailableReason}
+          </p>
+        ) : readyHint ? (
+          <p className="gate__hint" role="status">
+            {readyHint}
           </p>
         ) : null}
       </section>
