@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.2 - 2026-03-20
+
+- Rebuilt the home shell around a cleaner reference-style layout with a soft left rail, centered content board, and a dedicated right activity column
+- Restyled the top bar and player dock to match the lighter desktop direction instead of the previous dark dashboard chrome
+- Kept the sidebar updater card and adjusted the shell toward a calmer, more minimal visual hierarchy
+
 ## v0.8.1 - 2026-03-20
 
 - Simplified the desktop shell into a cleaner, lower-density home surface with far fewer sections and faster initial loading

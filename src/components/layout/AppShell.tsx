@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
@@ -14,13 +14,11 @@ import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
 
-/* ── Keybinding definitions ────────────────────────────────── */
-
 interface Keybinding {
   key: string;
   label: string;
   group: 'playback' | 'navigation' | 'panels';
-  display: string; // what to show in the UI (e.g. "Space", "←", "M")
+  display: string;
 }
 
 const keybindings: Keybinding[] = [
@@ -53,56 +51,52 @@ const groupLabels = {
   panels: 'kb.groupPanels',
 } as const;
 
-/* ── Keybindings dialog ───────────────────────────────────── */
-
 const KeyCap = ({ children }: { children: React.ReactNode }) => (
-  <kbd className="inline-flex items-center justify-center min-w-[28px] h-[28px] px-1.5 rounded-lg bg-white/[0.08] border border-white/[0.1] text-[12px] font-semibold text-white/70 font-mono shadow-[0_1px_2px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)]">
+  <kbd className="inline-flex min-w-[28px] items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.08] px-1.5 h-[28px] font-mono text-[12px] font-semibold text-white/70 shadow-[0_1px_2px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)]">
     {children}
   </kbd>
 );
 
 const KeybindingsDialog = React.memo(
-  ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) => {
+  ({ open, onOpenChange }: { open: boolean; onOpenChange: (value: boolean) => void }) => {
     const { t } = useTranslation();
 
-    const groups = (['playback', 'navigation', 'panels'] as const).map((g) => ({
-      id: g,
-      label: groupLabels[g],
-      bindings: keybindings.filter((b) => b.group === g),
+    const groups = (['playback', 'navigation', 'panels'] as const).map((group) => ({
+      id: group,
+      label: groupLabels[group],
+      bindings: keybindings.filter((binding) => binding.group === group),
     }));
 
     return (
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" />
-          <Dialog.Content className="dialog-content fixed z-[80] top-1/2 left-1/2 w-full max-w-[520px] bg-[#1a1a1e]/95 backdrop-blur-2xl border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden">
-            {/* Header */}
-            <div className="px-7 pt-6 pb-4 border-b border-white/[0.06]">
-              <Dialog.Title className="text-[18px] font-bold text-white/90 tracking-tight">
+          <Dialog.Content className="dialog-content fixed left-1/2 top-1/2 z-[80] w-full max-w-[520px] overflow-hidden rounded-3xl border border-white/[0.08] bg-[#1a1a1e]/95 shadow-2xl backdrop-blur-2xl">
+            <div className="border-b border-white/[0.06] px-7 pb-4 pt-6">
+              <Dialog.Title className="text-[18px] font-bold tracking-tight text-white/90">
                 {t('kb.title')}
               </Dialog.Title>
-              <Dialog.Description className="text-[12px] text-white/30 mt-1">
+              <Dialog.Description className="mt-1 text-[12px] text-white/30">
                 {isMac() ? '⌘' : 'Ctrl'} + / {t('kb.toToggle')}
               </Dialog.Description>
             </div>
 
-            {/* Body */}
-            <div className="px-7 py-5 space-y-6 max-h-[60vh] overflow-y-auto">
+            <div className="max-h-[60vh] space-y-6 overflow-y-auto px-7 py-5">
               {groups.map((group) => (
                 <div key={group.id}>
-                  <h3 className="text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3">
+                  <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-white/30">
                     {t(group.label)}
                   </h3>
                   <div className="space-y-1">
-                    {group.bindings.map((bind) => (
+                    {group.bindings.map((binding) => (
                       <div
-                        key={bind.key}
-                        className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-colors"
+                        key={binding.key}
+                        className="flex items-center justify-between rounded-xl px-3 py-2 transition-colors hover:bg-white/[0.03]"
                       >
-                        <span className="text-[13px] text-white/60">{t(bind.label)}</span>
+                        <span className="text-[13px] text-white/60">{t(binding.label)}</span>
                         <div className="flex items-center gap-1">
-                          {bind.display.split(' ').map((part, i) => (
-                            <KeyCap key={i}>{part}</KeyCap>
+                          {binding.display.split(' ').map((part, index) => (
+                            <KeyCap key={index}>{part}</KeyCap>
                           ))}
                         </div>
                       </div>
@@ -112,12 +106,11 @@ const KeybindingsDialog = React.memo(
               ))}
             </div>
 
-            {/* Footer */}
-            <div className="px-7 py-4 border-t border-white/[0.06] flex justify-end">
+            <div className="flex justify-end border-t border-white/[0.06] px-7 py-4">
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="px-5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-[13px] font-semibold text-white/70 hover:text-white transition-all cursor-pointer"
+                  className="cursor-pointer rounded-xl bg-white/[0.08] px-5 py-2 text-[13px] font-semibold text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
                 >
                   {t('kb.close')}
                 </button>
@@ -130,17 +123,16 @@ const KeybindingsDialog = React.memo(
   },
 );
 
-/* ── Backgrounds ───────────────────────────────────────────── */
-
-const CustomBackground = React.memo(() => {
-  const bgName = useSettingsStore((s) => s.backgroundImage);
-  const bgOpacity = useSettingsStore((s) => s.backgroundOpacity);
+const CustomBackground = React.memo(({ light }: { light: boolean }) => {
+  const bgName = useSettingsStore((state) => state.backgroundImage);
+  const bgOpacity = useSettingsStore((state) => state.backgroundOpacity);
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
-  if (!bgUrl) return null;
+  if (!bgUrl || light) return null;
+
   return (
     <div
-      className="absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
+      className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
       style={{
         backgroundImage: `url(${bgUrl})`,
         opacity: bgOpacity,
@@ -149,12 +141,15 @@ const CustomBackground = React.memo(() => {
   );
 });
 
-const AmbientGlow = React.memo(() => {
-  const artwork = usePlayerStore((s) => art(s.currentTrack?.artwork_url, 't500x500'));
+const AmbientGlow = React.memo(({ light }: { light: boolean }) => {
+  const artwork = usePlayerStore((state) => art(state.currentTrack?.artwork_url, 't500x500'));
   if (!artwork) return null;
+
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 h-[240px] opacity-[0.03] blur-[56px] pointer-events-none transition-all duration-700 ease-out"
+      className={`pointer-events-none absolute inset-x-0 bottom-0 transition-all duration-700 ease-out ${
+        light ? 'h-[260px] opacity-[0.08] blur-[88px]' : 'h-[240px] opacity-[0.03] blur-[56px]'
+      }`}
       style={{
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
@@ -168,45 +163,40 @@ const AmbientGlow = React.memo(() => {
 
 const StableOutlet = React.memo(() => <Outlet />);
 
-/* ── Helpers ───────────────────────────────────────────────── */
-
-const isInputEl = (el: EventTarget | null) =>
-  el instanceof HTMLInputElement ||
-  el instanceof HTMLTextAreaElement ||
-  (el instanceof HTMLElement && el.isContentEditable);
-
-/* ── AppShell ──────────────────────────────────────────────── */
+const isInputEl = (element: EventTarget | null) =>
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLTextAreaElement ||
+  (element instanceof HTMLElement && element.isContentEditable);
 
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
-  const onQueueToggle = useCallback(() => setQueueOpen((v) => !v), []);
-  const onQueueClose = useCallback(() => setQueueOpen(false), []);
+  const location = useLocation();
   const navigate = useNavigate();
+  const lightChrome = location.pathname === '/';
+
+  const onQueueToggle = useCallback(() => setQueueOpen((value) => !value), []);
+  const onQueueClose = useCallback(() => setQueueOpen(false), []);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const inInput = isInputEl(e.target);
-      // e.code = physical key (layout-independent), e.key = character
-      const code = e.code;
+    const handler = (event: KeyboardEvent) => {
+      const inInput = isInputEl(event.target);
+      const code = event.code;
 
-      // Ctrl+/ — toggle keybindings dialog (always)
-      if ((e.key === '/' || code === 'Slash') && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setKbOpen((v) => !v);
+      if ((event.key === '/' || code === 'Slash') && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setKbOpen((value) => !value);
         return;
       }
 
-      // Ctrl+K — focus search (always, even in input)
-      if (code === 'KeyK' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
+      if (code === 'KeyK' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
         navigate('/search');
         return;
       }
 
-      // / — focus search (not in input)
-      if ((e.key === '/' || code === 'Slash') && !inInput) {
-        e.preventDefault();
+      if ((event.key === '/' || code === 'Slash') && !inInput) {
+        event.preventDefault();
         navigate('/search');
         return;
       }
@@ -217,23 +207,23 @@ export const AppShell = React.memo(() => {
 
       switch (code) {
         case 'Space':
-          e.preventDefault();
+          event.preventDefault();
           player.togglePlay();
           break;
         case 'ArrowRight':
-          e.preventDefault();
+          event.preventDefault();
           seek(Math.min(getCurrentTime() + 5, getDuration()));
           break;
         case 'ArrowLeft':
-          e.preventDefault();
+          event.preventDefault();
           seek(Math.max(getCurrentTime() - 5, 0));
           break;
         case 'ArrowUp':
-          e.preventDefault();
+          event.preventDefault();
           player.setVolume(usePlayerStore.getState().volume + 5);
           break;
         case 'ArrowDown':
-          e.preventDefault();
+          event.preventDefault();
           player.setVolume(usePlayerStore.getState().volume - 5);
           break;
         case 'KeyM': {
@@ -257,7 +247,7 @@ export const AppShell = React.memo(() => {
           useLyricsStore.getState().toggle();
           break;
         case 'KeyQ':
-          setQueueOpen((v) => !v);
+          setQueueOpen((value) => !value);
           break;
         case 'BracketLeft':
           useSettingsStore.getState().toggleSidebar();
@@ -275,21 +265,43 @@ export const AppShell = React.memo(() => {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, queueOpen, kbOpen]);
+  }, [kbOpen, navigate, queueOpen]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden relative">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.05),transparent_60%)]" />
-      <CustomBackground />
-      <AmbientGlow />
-      <Titlebar />
-      <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2">
-          <StableOutlet />
-        </main>
+    <div
+      className={`relative flex h-screen overflow-hidden ${
+        lightChrome
+          ? 'bg-[linear-gradient(180deg,#f3f0fb_0%,#f8f6fc_40%,#f2eef9_100%)]'
+          : 'bg-[linear-gradient(180deg,#0a0b10_0%,#08090d_100%)]'
+      }`}
+    >
+      {lightChrome && (
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,138,76,0.18),transparent_18%),radial-gradient(circle_at_82%_18%,rgba(186,177,242,0.26),transparent_22%)]" />
+      )}
+      {!lightChrome && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top,rgba(255,106,26,0.05),transparent_60%)]" />
+      )}
+      <CustomBackground light={lightChrome} />
+      <AmbientGlow light={lightChrome} />
+
+      <div className="relative z-10 flex min-h-0 flex-1 gap-4 p-4">
+        <Sidebar tone={lightChrome ? 'light' : 'dark'} />
+
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <Titlebar tone={lightChrome ? 'light' : 'dark'} />
+          <main
+            className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-[34px] ${
+              lightChrome
+                ? 'border border-[#e8e1f5] bg-[rgba(255,255,255,0.78)] shadow-[0_24px_80px_rgba(188,177,220,0.26)]'
+                : 'bg-transparent'
+            }`}
+          >
+            <StableOutlet />
+          </main>
+          <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} tone={lightChrome ? 'light' : 'dark'} />
+        </div>
       </div>
-      <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
+
       <QueuePanel open={queueOpen} onClose={onQueueClose} />
       <LyricsPanel />
       <ArtworkPanel />

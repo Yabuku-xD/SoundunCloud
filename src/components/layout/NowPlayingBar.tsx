@@ -29,7 +29,7 @@ import { AppImage } from '../ui/AppImage';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
 
-export const ProgressSlider = React.memo(() => {
+export const ProgressSlider = React.memo(({ light = false }: { light?: boolean }) => {
   const duration = useSyncExternalStore(subscribe, getDuration);
 
   const [dragging, setDragging] = useState(false);
@@ -79,15 +79,23 @@ export const ProgressSlider = React.memo(() => {
       onValueChange={onValueChange}
       onValueCommit={onValueCommit}
     >
-      <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
+      <Slider.Track
+        className={`relative h-[3px] grow rounded-full transition-all duration-150 group-hover:h-[5px] ${
+          light ? 'bg-[#dcd5e8]' : 'bg-white/[0.08]'
+        }`}
+      >
         <Slider.Range
           ref={rangeRef}
-          className="absolute h-full rounded-full bg-accent will-change-transform"
+          className={`absolute h-full rounded-full will-change-transform ${light ? 'bg-[#7e54c5]' : 'bg-accent'}`}
         />
       </Slider.Track>
       <Slider.Thumb
         ref={thumbRef}
-        className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none will-change-transform"
+        className={`block w-3 h-3 rounded-full scale-0 opacity-0 transition-all duration-150 outline-none will-change-transform group-hover:scale-100 group-hover:opacity-100 ${
+          light
+            ? 'bg-[#7e54c5] shadow-[0_0_0_4px_rgba(126,84,197,0.12)]'
+            : 'bg-accent shadow-[0_0_10px_var(--color-accent-glow)]'
+        }`}
       />
     </Slider.Root>
   );
@@ -95,7 +103,8 @@ export const ProgressSlider = React.memo(() => {
 
 /* ── Volume Slider ───────────────────────────────────────────── */
 
-const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => {
+const VolumeSlider = React.memo(
+  ({ className = '', light = false }: { className?: string; light?: boolean }) => {
   const volume = usePlayerStore((s) => s.volume);
   const setVolume = usePlayerStore((s) => s.setVolume);
   const isOver100 = volume > 100;
@@ -113,27 +122,43 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
           setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 2 : -2))));
         }}
       >
-        <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
+        <Slider.Track
+          className={`relative h-[3px] grow rounded-full transition-all duration-150 group-hover:h-[4px] ${
+            light ? 'bg-[#dcd5e8]' : 'bg-white/[0.08]'
+          }`}
+        >
           <Slider.Range
-            className={`absolute h-full rounded-full ${isOver100 ? 'bg-amber-400/80' : 'bg-white/60'}`}
+            className={`absolute h-full rounded-full ${
+              isOver100
+                ? 'bg-amber-400/80'
+                : light
+                  ? 'bg-[#6d6481]'
+                  : 'bg-white/60'
+            }`}
           />
         </Slider.Track>
         <Slider.Thumb
-          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-amber-400' : 'bg-white'}`}
+          className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${
+            isOver100 ? 'bg-amber-400' : light ? 'bg-[#6d6481]' : 'bg-white'
+          }`}
         />
       </Slider.Root>
       {/* 100% tick mark (visual only, outside Slider tree) */}
       <div
-        className="absolute top-1/2 -translate-y-1/2 h-[3px] w-px bg-white/20 pointer-events-none"
+        className={`pointer-events-none absolute top-1/2 h-[3px] w-px -translate-y-1/2 ${
+          light ? 'bg-[#cbc2db]' : 'bg-white/20'
+        }`}
         style={{ left: '50%' }}
       />
     </div>
   );
-});
+  },
+);
 
 /* ── Volume button ───────────────────────────────────────────── */
 
-const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 'sm' }) => {
+const ControlVolumeBtn = React.memo(
+  ({ size = 'default', light = false }: { size?: 'default' | 'sm'; light?: boolean }) => {
   const volume = usePlayerStore((s) => s.volume);
   const volumeBeforeMute = usePlayerStore((s) => s.volumeBeforeMute);
   const setVolume = usePlayerStore((s) => s.setVolume);
@@ -142,22 +167,31 @@ const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 
     <button
       type="button"
       onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
-      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.06] ${
-        volume === 0 ? 'text-accent' : 'text-white/40 hover:text-white/70'
+      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer ${
+        light ? 'hover:bg-[#f0ebf8]' : 'hover:bg-white/[0.06]'
+      } ${
+        volume === 0
+          ? 'text-accent'
+          : light
+            ? 'text-[#7d7195] hover:text-[#34284b]'
+            : 'text-white/40 hover:text-white/70'
       }`}
     >
       {volume === 0 ? volumeXIcon16 : volume < 50 ? volume1Icon16 : volume2Icon16}
     </button>
   );
-});
+  },
+);
 
 /* ── Volume % label ──────────────────────────────────────────── */
 
-const VolumeLabel = React.memo(() => {
+const VolumeLabel = React.memo(({ light = false }: { light?: boolean }) => {
   const volume = usePlayerStore((s) => s.volume);
   return (
     <span
-      className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-amber-400/70' : 'text-white/30'}`}
+      className={`w-[34px] shrink-0 text-right text-[10px] tabular-nums ${
+        volume > 100 ? 'text-amber-400/70' : light ? 'text-[#988eac]' : 'text-white/30'
+      }`}
     >
       {volume}%
     </span>
@@ -166,17 +200,17 @@ const VolumeLabel = React.memo(() => {
 
 /* ── Progress Time (updates once per second) ─────────────────── */
 
-export const ProgressTime = React.memo(() => {
+export const ProgressTime = React.memo(({ light = false }: { light?: boolean }) => {
   const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
   const duration = useSyncExternalStore(subscribe, getDuration);
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-white/50 tabular-nums font-medium">
+      <span className={`text-[11px] font-medium tabular-nums ${light ? 'text-[#6c6280]' : 'text-white/50'}`}>
         {formatTime(currentSecond)}
       </span>
-      <span className="text-[11px] text-white/20">/</span>
-      <span className="text-[11px] text-white/30 tabular-nums font-medium">
+      <span className={`text-[11px] ${light ? 'text-[#b5adc5]' : 'text-white/20'}`}>/</span>
+      <span className={`text-[11px] font-medium tabular-nums ${light ? 'text-[#9388a8]' : 'text-white/30'}`}>
         {formatTime(duration)}
       </span>
     </div>
@@ -185,7 +219,7 @@ export const ProgressTime = React.memo(() => {
 
 /* ── Like button ─────────────────────────────────────────────── */
 
-function LikeButton({ trackUrn }: { trackUrn: string }) {
+function LikeButton({ trackUrn, light = false }: { trackUrn: string; light?: boolean }) {
   const qc = useQueryClient();
 
   const { data: trackData } = useQuery({
@@ -225,8 +259,10 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
     <button
       type="button"
       onClick={toggle}
-      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
-        isLiked ? 'text-accent' : 'text-white/30 hover:text-white/60'
+      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer ${
+        light ? 'hover:bg-[#f0ebf8]' : 'hover:bg-white/[0.04]'
+      } ${
+        isLiked ? 'text-accent' : light ? 'text-[#887d9f] hover:text-[#34284b]' : 'text-white/30 hover:text-white/60'
       }`}
     >
       <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
@@ -236,71 +272,77 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
 
 /* ── Isolated control buttons ────────────────────────────────── */
 
-const btnClass = (active: boolean, size: 'default' | 'sm') =>
-  `${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.06] ${
-    active ? 'text-accent' : 'text-white/40 hover:text-white/70'
+const btnClass = (active: boolean, size: 'default' | 'sm', light: boolean) =>
+  `${size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer ${
+    light ? 'hover:bg-[#f0ebf8]' : 'hover:bg-white/[0.06]'
+  } ${
+    active ? 'text-accent' : light ? 'text-[#7f7496] hover:text-[#33284a]' : 'text-white/40 hover:text-white/70'
   }`;
 
-const PlayPauseBtn = React.memo(() => {
+const PlayPauseBtn = React.memo(({ light = false }: { light?: boolean }) => {
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   return (
     <button
       type="button"
       onClick={togglePlay}
-      className="mx-1 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_12px_28px_rgba(0,0,0,0.24)] transition-all duration-200 ease-[var(--ease-apple)] hover:scale-[1.04] hover:bg-white active:scale-[0.96] cursor-pointer"
+      className={`mx-1 flex h-12 w-12 items-center justify-center rounded-full text-black transition-all duration-200 ease-[var(--ease-apple)] hover:scale-[1.04] active:scale-[0.96] cursor-pointer ${
+        light
+          ? 'bg-[#2f2442] text-white shadow-[0_14px_32px_rgba(53,40,77,0.22)] hover:bg-[#241a36]'
+          : 'bg-white/90 shadow-[0_12px_28px_rgba(0,0,0,0.24)] hover:bg-white'
+      }`}
     >
-      {isPlaying ? pauseBlack20 : playBlack20}
+      {light ? (isPlaying ? '❚❚' : '▶') : isPlaying ? pauseBlack20 : playBlack20}
     </button>
   );
 });
 
-const ShuffleBtn = React.memo(() => {
+const ShuffleBtn = React.memo(({ light = false }: { light?: boolean }) => {
   const shuffle = usePlayerStore((s) => s.shuffle);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   return (
-    <button type="button" onClick={toggleShuffle} className={btnClass(shuffle, 'sm')}>
+    <button type="button" onClick={toggleShuffle} className={btnClass(shuffle, 'sm', light)}>
       {shuffleIcon16}
     </button>
   );
 });
 
-const RepeatBtn = React.memo(() => {
+const RepeatBtn = React.memo(({ light = false }: { light?: boolean }) => {
   const repeat = usePlayerStore((s) => s.repeat);
   const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
   return (
-    <button type="button" onClick={toggleRepeat} className={btnClass(repeat !== 'off', 'sm')}>
+    <button type="button" onClick={toggleRepeat} className={btnClass(repeat !== 'off', 'sm', light)}>
       {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
     </button>
   );
 });
 
-const PrevBtn = React.memo(() => (
-  <button type="button" onClick={handlePrev} className={btnClass(false, 'default')}>
+const PrevBtn = React.memo(({ light = false }: { light?: boolean }) => (
+  <button type="button" onClick={handlePrev} className={btnClass(false, 'default', light)}>
     {skipBack20}
   </button>
 ));
 
-const NextBtn = React.memo(() => {
+const NextBtn = React.memo(({ light = false }: { light?: boolean }) => {
   const next = usePlayerStore((s) => s.next);
   return (
-    <button type="button" onClick={next} className={btnClass(false, 'default')}>
+    <button type="button" onClick={next} className={btnClass(false, 'default', light)}>
       {skipForward20}
     </button>
   );
 });
 
-const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active: boolean }) => (
-  <button type="button" onClick={onClick} className={btnClass(active, 'sm')}>
+const QueueBtn = React.memo(({ onClick, active, light = false }: { onClick: () => void; active: boolean; light?: boolean }) => (
+  <button type="button" onClick={onClick} className={btnClass(active, 'sm', light)}>
     {listMusic16}
   </button>
 ));
 
-const LyricsBtn = React.memo(() => {
+const LyricsBtn = React.memo(({ light = false }: { light?: boolean }) => {
   const open = useLyricsStore((s) => s.open);
   const toggle = useLyricsStore((s) => s.toggle);
   return (
-    <button type="button" onClick={toggle} className={btnClass(open, 'sm')}>
+    <button type="button" onClick={toggle} className={btnClass(open, 'sm', light)}>
       <MicVocal size={16} />
     </button>
   );
@@ -308,7 +350,7 @@ const LyricsBtn = React.memo(() => {
 
 /* ── Track Info (left section) ───────────────────────────────── */
 
-const TrackInfo = React.memo(() => {
+const TrackInfo = React.memo(({ light = false }: { light?: boolean }) => {
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const artworkSmall = art(currentTrack?.artwork_url, 't200x200');
@@ -316,11 +358,15 @@ const TrackInfo = React.memo(() => {
   if (!currentTrack) {
     return (
       <div className="flex w-[280px] min-w-0 items-center gap-3">
-        <div className="flex w-full items-center gap-3 rounded-[22px] bg-white/[0.04] px-3 py-3 ring-1 ring-white/[0.06]">
-          <div className="h-12 w-12 rounded-[16px] bg-white/[0.05]" />
+        <div
+          className={`flex w-full items-center gap-3 rounded-[22px] px-3 py-3 ${
+            light ? 'bg-[#faf8fd] ring-1 ring-[#e8e1f3]' : 'bg-white/[0.04] ring-1 ring-white/[0.06]'
+          }`}
+        >
+          <div className={`h-12 w-12 rounded-[16px] ${light ? 'bg-[#eee7f7]' : 'bg-white/[0.05]'}`} />
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-white/70">Nothing playing</p>
-            <p className="mt-1 text-[11px] text-white/32">Pick a track to start.</p>
+            <p className={`text-[13px] font-medium ${light ? 'text-[#34284b]' : 'text-white/70'}`}>Nothing playing</p>
+            <p className={`mt-1 text-[11px] ${light ? 'text-[#958aa9]' : 'text-white/32'}`}>Pick a track to start.</p>
           </div>
         </div>
       </div>
@@ -330,7 +376,11 @@ const TrackInfo = React.memo(() => {
   return (
     <div className="flex w-[280px] min-w-0 items-center gap-3">
       <div
-        className="group/art relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-[18px] shadow-xl shadow-black/30 ring-1 ring-white/[0.08] transition-all duration-200 hover:ring-white/[0.14]"
+        className={`group/art relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-[18px] transition-all duration-200 ${
+          light
+            ? 'shadow-[0_10px_24px_rgba(191,181,226,0.18)] ring-1 ring-[#e8e1f3] hover:ring-[#d6caea]'
+            : 'shadow-xl shadow-black/30 ring-1 ring-white/[0.08] hover:ring-white/[0.14]'
+        }`}
         onClick={() => artworkPanelApi.open()}
       >
         {artworkSmall ? (
@@ -361,10 +411,12 @@ const TrackInfo = React.memo(() => {
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <p
-            className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
-            onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
-          >
-            {currentTrack.title}
+          className={`truncate text-[13px] font-medium leading-tight transition-colors cursor-pointer ${
+            light ? 'text-[#2f2442] hover:text-[#1f1730]' : 'text-white/90 hover:text-white'
+          }`}
+          onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
+        >
+          {currentTrack.title}
           </p>
           {currentTrack.access === 'preview' && (
             <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-400/90 px-1.5 py-px rounded">
@@ -373,27 +425,29 @@ const TrackInfo = React.memo(() => {
           )}
         </div>
         <p
-          className="mt-1 text-[11px] text-white/38 truncate cursor-pointer hover:text-white/62 transition-colors"
+          className={`mt-1 truncate text-[11px] transition-colors cursor-pointer ${
+            light ? 'text-[#8c82a2] hover:text-[#4a3b66]' : 'text-white/38 hover:text-white/62'
+          }`}
           onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
         >
           {currentTrack.user.username}
         </p>
       </div>
-      <LikeButton trackUrn={currentTrack.urn} />
+      <LikeButton trackUrn={currentTrack.urn} light={light} />
     </div>
   );
 });
 
 /* ── Background glow ─────────────────────────────────────────── */
 
-const BackgroundGlow = React.memo(() => {
+const BackgroundGlow = React.memo(({ light = false }: { light?: boolean }) => {
   const artworkUrl = usePlayerStore((s) => s.currentTrack?.artwork_url);
   const artwork = art(artworkUrl, 't200x200');
 
   if (!artwork) return null;
   return (
     <div
-      className="pointer-events-none absolute inset-0 opacity-[0.045] blur-3xl"
+      className={`pointer-events-none absolute inset-0 ${light ? 'opacity-[0.08] blur-[72px]' : 'opacity-[0.045] blur-3xl'}`}
       style={{
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
@@ -408,34 +462,56 @@ const BackgroundGlow = React.memo(() => {
 /* ── NowPlayingBar ───────────────────────────────────────────── */
 
 export const NowPlayingBar = React.memo(
-  ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
+  ({
+    onQueueToggle,
+    queueOpen,
+    tone = 'dark',
+  }: {
+    onQueueToggle: () => void;
+    queueOpen: boolean;
+    tone?: 'light' | 'dark';
+  }) => {
+    const light = tone === 'light';
     return (
       <div className="relative shrink-0 px-3 pb-3">
-        <BackgroundGlow />
-        <div className="glass-dock relative overflow-hidden rounded-[30px]" style={{ isolation: 'isolate' }}>
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,106,26,0.48),rgba(255,255,255,0.08),transparent)]" />
-          <ProgressSlider />
+        <BackgroundGlow light={light} />
+        <div
+          className={`relative overflow-hidden rounded-[30px] ${
+            light
+              ? 'border border-[#e8e1f3] bg-[rgba(255,255,255,0.72)] shadow-[0_18px_50px_rgba(188,177,220,0.18)]'
+              : 'glass-dock'
+          }`}
+          style={{ isolation: 'isolate' }}
+        >
+          <div
+            className={`pointer-events-none absolute inset-x-0 top-0 h-px ${
+              light
+                ? 'bg-[linear-gradient(90deg,rgba(126,84,197,0.32),rgba(255,255,255,0.6),transparent)]'
+                : 'bg-[linear-gradient(90deg,rgba(255,106,26,0.48),rgba(255,255,255,0.08),transparent)]'
+            }`}
+          />
+          <ProgressSlider light={light} />
 
           <div className="relative flex h-[88px] items-center gap-4 px-4 md:px-5">
-            <TrackInfo />
+            <TrackInfo light={light} />
 
             <div className="flex flex-1 flex-col items-center gap-1">
               <div className="flex items-center gap-0.5">
-                <ShuffleBtn />
-                <PrevBtn />
-                <PlayPauseBtn />
-                <NextBtn />
-                <RepeatBtn />
+                <ShuffleBtn light={light} />
+                <PrevBtn light={light} />
+                <PlayPauseBtn light={light} />
+                <NextBtn light={light} />
+                <RepeatBtn light={light} />
               </div>
-              <ProgressTime />
+              <ProgressTime light={light} />
             </div>
 
             <div className="flex w-[190px] items-center justify-end gap-0.5">
-              <LyricsBtn />
-              <QueueBtn onClick={onQueueToggle} active={queueOpen} />
-              <ControlVolumeBtn size="sm" />
-              <VolumeSlider className="w-[84px]" />
-              <VolumeLabel />
+              <LyricsBtn light={light} />
+              <QueueBtn onClick={onQueueToggle} active={queueOpen} light={light} />
+              <ControlVolumeBtn size="sm" light={light} />
+              <VolumeSlider className="w-[84px]" light={light} />
+              <VolumeLabel light={light} />
             </div>
           </div>
         </div>

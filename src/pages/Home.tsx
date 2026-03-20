@@ -1,249 +1,276 @@
-import React, { useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { TrackCard } from '../components/music/TrackCard';
+import { useMemo } from 'react';
 import { AppImage } from '../components/ui/AppImage';
-import { HorizontalScroll } from '../components/ui/HorizontalScroll';
-import { Skeleton } from '../components/ui/Skeleton';
+import { Avatar } from '../components/ui/Avatar';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/formatters';
-import { ChevronRight, Heart, pauseBlack18, playBlack18 } from '../lib/icons';
-import { useFallbackTracks, useLikedTracks } from '../lib/hooks';
+import { art, dur } from '../lib/formatters';
+import { Clock, Heart, Headphones, pauseBlack18, playBlack18, Users } from '../lib/icons';
+import { useFallbackTracks, useFollowingTracks, useLikedTracks } from '../lib/hooks';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 
-function greetingKey() {
-  const hour = new Date().getHours();
-  if (hour < 6) return 'home.goodNight';
-  if (hour < 12) return 'home.goodMorning';
-  if (hour < 18) return 'home.goodAfternoon';
-  return 'home.goodEvening';
-}
+const surface =
+  'rounded-[28px] border border-[#ece6f6] bg-white/[0.88] shadow-[0_18px_50px_rgba(189,180,223,0.18)]';
 
 const sectionVisibilityStyle = {
   contentVisibility: 'auto',
   containIntrinsicSize: '520px',
 } as const;
 
-function SectionHeader({ title, onSeeAll }: { title: string; onSeeAll?: () => void }) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <h2 className="text-[16px] font-semibold tracking-[-0.03em] text-white/90">{title}</h2>
-      {onSeeAll && (
-        <button
-          type="button"
-          onClick={onSeeAll}
-          className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium text-white/38 transition-colors duration-200 hover:bg-white/[0.05] hover:text-white/72"
-        >
-          {t('common.seeAll')}
-          <ChevronRight size={12} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ShelfSkeleton({ count = 6 }: { count?: number }) {
-  return (
-    <>
-      {Array.from({ length: count }).map((_, index) => (
-        <div key={index} className="w-[172px] shrink-0">
-          <Skeleton className="aspect-square w-full" rounded="lg" />
-          <Skeleton className="mt-2.5 h-4 w-3/4" rounded="sm" />
-          <Skeleton className="mt-1.5 h-3 w-1/2" rounded="sm" />
-        </div>
-      ))}
-    </>
-  );
-}
-
-function FeaturedSkeleton() {
-  return (
-    <div className="glass-flat flex min-h-[220px] items-center gap-6 rounded-[28px] p-5">
-      <Skeleton className="h-[160px] w-[160px] shrink-0" rounded="lg" />
-      <div className="min-w-0 flex-1 space-y-3">
-        <Skeleton className="h-4 w-24" rounded="sm" />
-        <Skeleton className="h-10 w-2/3" rounded="sm" />
-        <Skeleton className="h-4 w-1/3" rounded="sm" />
-      </div>
-      <Skeleton className="h-14 w-14 shrink-0" rounded="full" />
-    </div>
-  );
-}
-
-const FeaturedTrackCard = React.memo(function FeaturedTrackCard({
+function HeroTrackRow({
   track,
+  index,
   queue,
 }: {
   track: Track;
+  index: number;
   queue: Track[];
 }) {
-  const navigate = useNavigate();
+  const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+
+  return (
+    <button
+      type="button"
+      onClick={togglePlay}
+      className="grid w-full grid-cols-[24px_minmax(0,1fr)_44px] items-center gap-3 rounded-[18px] px-3 py-2.5 text-left transition-colors duration-150 hover:bg-[#f5f1fb]"
+    >
+      <span className="text-[12px] font-medium text-[#a093b6]">{index + 1}</span>
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-semibold text-[#2f2442]">{track.title}</p>
+        <p className="truncate text-[11px] text-[#8e84a4]">{track.user.username}</p>
+      </div>
+      <div className="flex items-center justify-end text-[11px] text-[#9e93b2]">
+        {isThisPlaying ? pauseBlack18 : dur(track.duration)}
+      </div>
+    </button>
+  );
+}
+
+function FeaturePanel({ track, queue }: { track: Track; queue: Track[] }) {
   const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't500x500');
 
   return (
     <div
-      className="glass-flat relative overflow-hidden rounded-[28px] border border-white/[0.06] p-5 md:p-6"
+      className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]"
       onMouseEnter={() => preloadTrack(track.urn)}
     >
-      {cover && (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="relative aspect-square overflow-hidden rounded-[24px] bg-[#efe9f8] shadow-[0_16px_40px_rgba(189,180,223,0.22)]">
+        {cover ? (
           <AppImage
             src={cover}
-            alt=""
-            width={500}
-            height={500}
+            alt={track.title}
+            width={220}
+            height={220}
             priority
             containerClassName="h-full w-full"
-            imgClassName="h-full w-full object-cover scale-[1.16] blur-[84px] opacity-[0.14]"
+            imgClassName="h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(7,7,10,0.88),rgba(7,7,10,0.62),rgba(7,7,10,0.82))]" />
-        </div>
-      )}
+        ) : (
+          <div className="h-full w-full bg-[#efe9f8]" />
+        )}
+      </div>
 
-      <div className="relative grid items-center gap-5 md:grid-cols-[188px_1fr_auto]">
-        <button
-          type="button"
-          onClick={togglePlay}
-          className="group relative aspect-square overflow-hidden rounded-[24px] bg-white/[0.04] ring-1 ring-white/[0.08]"
-        >
-          {cover ? (
-            <AppImage
-              src={cover}
-              alt={track.title}
-              width={188}
-              height={188}
-              priority
-              containerClassName="h-full w-full"
-              imgClassName="h-full w-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.03]"
-            />
-          ) : (
-            <div className="h-full w-full bg-white/[0.04]" />
-          )}
-          <div className="absolute inset-0 bg-black/12 transition-colors duration-200 group-hover:bg-black/24" />
-        </button>
-
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/34">
-            Selected for you
-          </p>
-          <h2
-            className="mt-3 max-w-[12ch] cursor-pointer text-[clamp(1.9rem,3vw,3.3rem)] font-bold leading-[0.94] tracking-[-0.05em] text-white/96 transition-colors duration-200 hover:text-white"
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
+      <div className="flex min-w-0 flex-col justify-between">
+        <div>
+          <p className="text-[12px] font-medium text-[#8f84a6]">Releases for You</p>
+          <h2 className="mt-3 max-w-[14ch] text-[clamp(1.9rem,3vw,3.2rem)] font-bold leading-[0.95] tracking-[-0.05em] text-[#2f2442]">
             {track.title}
           </h2>
-          <p
-            className="mt-3 cursor-pointer text-[14px] text-white/48 transition-colors duration-200 hover:text-white/68"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-          {track.genre && (
-            <div className="mt-4">
-              <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-white/44">
-                {track.genre}
-              </span>
-            </div>
-          )}
+          <p className="mt-2 text-[13px] text-[#8f84a6]">{track.user.username}</p>
         </div>
 
         <button
           type="button"
           onClick={togglePlay}
-          aria-label={isThisPlaying ? 'Pause track' : 'Play track'}
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/90 text-black shadow-[0_16px_36px_rgba(0,0,0,0.28)] transition-transform duration-200 ease-[var(--ease-apple)] hover:scale-[1.04] active:scale-[0.96]"
+          className="mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-[#2f2442] text-white shadow-[0_14px_30px_rgba(53,40,77,0.24)] transition-transform duration-150 hover:scale-[1.03]"
         >
           {isThisPlaying ? pauseBlack18 : playBlack18}
         </button>
       </div>
     </div>
   );
-});
+}
 
-export function Home() {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const { tracks: likedTracks, isLoading: likedLoading } = useLikedTracks(12);
-  const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
-
-  const fallbackTracks = useMemo(() => (fallbackData?.collection ?? []).slice(0, 8), [fallbackData]);
-  const featuredQueue = likedTracks.length > 0 ? likedTracks : fallbackTracks;
-  const featuredTrack = featuredQueue[0] ?? null;
-  const showFallbackShelf = likedTracks.length === 0 && (fallbackLoading || fallbackTracks.length > 0);
+function TrackTile({ track, queue }: { track: Track; queue: Track[] }) {
+  const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+  const cover = art(track.artwork_url, 't300x300');
 
   return (
-    <div className="space-y-5 px-4 py-4 md:px-6">
-      <section className="section-frame px-5 py-6 md:px-7" style={sectionVisibilityStyle}>
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/32">
-          SoundCloud desktop
-        </p>
-        <h1 className="mt-3 text-[clamp(2.4rem,5vw,4.2rem)] font-bold leading-[0.92] tracking-[-0.06em] text-white/96">
-          {t(greetingKey())}
-          {user?.username ? `, ${user.username}` : ''}
-        </h1>
-        <p className="mt-3 max-w-xl text-[14px] leading-6 text-white/42">
-          Minimal playback, lighter shelves, and less noise.
-        </p>
-      </section>
+    <button
+      type="button"
+      onClick={togglePlay}
+      className="group w-[132px] shrink-0 text-left"
+      onMouseEnter={() => preloadTrack(track.urn)}
+    >
+      <div className="relative aspect-square overflow-hidden rounded-[20px] bg-[#efe9f8] shadow-[0_10px_28px_rgba(189,180,223,0.18)]">
+        {cover ? (
+          <AppImage
+            src={cover}
+            alt={track.title}
+            width={132}
+            height={132}
+            containerClassName="h-full w-full"
+            imgClassName="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="h-full w-full bg-[#efe9f8]" />
+        )}
+        <div className="absolute inset-0 bg-black/0 transition-colors duration-150 group-hover:bg-black/10" />
+      </div>
+      <p className="mt-2 truncate text-[12px] font-semibold text-[#2f2442]">{track.title}</p>
+      <p className="mt-0.5 truncate text-[11px] text-[#9388a8]">{track.user.username}</p>
+      <p className="mt-0.5 text-[10px] text-[#aea3c0]">{isThisPlaying ? 'Playing' : dur(track.duration)}</p>
+    </button>
+  );
+}
 
-      <section style={sectionVisibilityStyle}>
-        {likedLoading && !featuredTrack ? (
-          <FeaturedSkeleton />
-        ) : featuredTrack ? (
-          <FeaturedTrackCard track={featuredTrack} queue={featuredQueue} />
-        ) : null}
-      </section>
+function ActivityItem({
+  avatar,
+  title,
+  subtitle,
+}: {
+  avatar?: string | null;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-[18px] bg-[#faf8fd] px-3 py-2.5">
+      <Avatar src={avatar} alt={title} size={34} />
+      <div className="min-w-0">
+        <p className="truncate text-[12px] font-semibold text-[#2f2442]">{title}</p>
+        <p className="truncate text-[11px] text-[#9b91af]">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
 
-      <section className="section-frame" style={sectionVisibilityStyle}>
-        <SectionHeader
-          title={likedTracks.length > 0 ? t('library.likedTracks') : 'Quick Picks'}
-          onSeeAll={likedTracks.length > 0 ? () => navigate('/library') : undefined}
-        />
-        <HorizontalScroll>
-          {likedLoading ? (
-            <ShelfSkeleton />
-          ) : likedTracks.length > 0 ? (
-            likedTracks.map((track) => (
-              <div key={track.urn} className="w-[172px] shrink-0">
-                <TrackCard track={track} queue={likedTracks} />
-              </div>
-            ))
-          ) : (
-            fallbackTracks.map((track) => (
-              <div key={track.urn} className="w-[172px] shrink-0">
-                <TrackCard track={track} queue={fallbackTracks} />
-              </div>
-            ))
-          )}
-        </HorizontalScroll>
-      </section>
+export function Home() {
+  const user = useAuthStore((state) => state.user);
+  const { tracks: likedTracks, isLoading: likedLoading } = useLikedTracks(12);
+  const { data: fallbackData } = useFallbackTracks();
+  const { data: followingData } = useFollowingTracks(6);
 
-      {showFallbackShelf && (
-        <section className="section-frame" style={sectionVisibilityStyle}>
-          <SectionHeader title="Start here" />
-          <div className="mb-4 flex items-center gap-2 text-[13px] text-white/38">
-            <Heart size={14} className="text-accent" />
-            <span>Fresh picks while your library is still loading up.</span>
-          </div>
-          <HorizontalScroll>
-            {fallbackLoading ? (
-              <ShelfSkeleton count={5} />
-            ) : (
-              fallbackTracks.map((track) => (
-                <div key={track.urn} className="w-[172px] shrink-0">
-                  <TrackCard track={track} queue={fallbackTracks} />
+  const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
+  const followingTracks = useMemo(() => followingData?.collection ?? [], [followingData]);
+  const queue = likedTracks.length > 0 ? likedTracks : fallbackTracks;
+  const featuredTrack = queue[0] ?? null;
+  const recentTracks = (likedTracks.length > 0 ? likedTracks : fallbackTracks).slice(0, 6);
+  const heroList = queue.slice(0, 5);
+  const friendsActivity = (followingTracks.length > 0 ? followingTracks : recentTracks).slice(0, 5);
+  const yourActivity = recentTracks.slice(0, 4);
+
+  return (
+    <div className="px-5 py-5 md:px-6 md:py-6">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="space-y-5">
+          <section className={`${surface} p-5 md:p-6`} style={sectionVisibilityStyle}>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+              {featuredTrack ? (
+                <FeaturePanel track={featuredTrack} queue={queue} />
+              ) : (
+                <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <div className="aspect-square rounded-[24px] bg-[#efe9f8]" />
+                  <div className="space-y-3">
+                    <div className="h-4 w-28 rounded-full bg-[#efe9f8]" />
+                    <div className="h-12 w-2/3 rounded-[18px] bg-[#f4f1fb]" />
+                    <div className="h-4 w-1/3 rounded-full bg-[#efe9f8]" />
+                  </div>
                 </div>
-              ))
-            )}
-          </HorizontalScroll>
-        </section>
-      )}
+              )}
+
+              <div className="rounded-[24px] bg-[#faf8fd] p-3">
+                <div className="space-y-1">
+                  {heroList.map((track, index) => (
+                    <HeroTrackRow key={track.urn} track={track} index={index} queue={queue} />
+                  ))}
+                  {!likedLoading && heroList.length === 0 && (
+                    <p className="px-3 py-5 text-[12px] text-[#9a90ae]">Your queue will show up here.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className={`${surface} p-5`} style={sectionVisibilityStyle}>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-[18px] font-semibold text-[#2f2442]">Recently Played</h3>
+                <p className="mt-1 text-[12px] text-[#968cab]">A lighter desktop mix from your likes.</p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto pb-1">
+              <div className="flex gap-4">
+                {recentTracks.map((track) => (
+                  <TrackTile key={track.urn} track={track} queue={queue} />
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-5" style={sectionVisibilityStyle}>
+          <section className={`${surface} p-5`}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[16px] font-semibold text-[#2f2442]">Friends Activity</h3>
+              <Users size={14} className="text-[#9b91af]" />
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {friendsActivity.map((track) => (
+                <ActivityItem
+                  key={track.urn}
+                  avatar={track.user.avatar_url}
+                  title={track.user.username}
+                  subtitle={track.title}
+                />
+              ))}
+              {friendsActivity.length === 0 && (
+                <p className="text-[12px] text-[#9b91af]">Activity will show up here.</p>
+              )}
+            </div>
+          </section>
+
+          <section className={`${surface} p-5`}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[16px] font-semibold text-[#2f2442]">Your Activity</h3>
+              <Clock size={14} className="text-[#9b91af]" />
+            </div>
+
+            <div className="mt-4 grid gap-2.5">
+              <div className="rounded-[20px] bg-[#faf8fd] px-4 py-3">
+                <div className="flex items-center gap-2 text-[11px] text-[#9b91af]">
+                  <Heart size={13} />
+                  <span>Liked tracks</span>
+                </div>
+                <p className="mt-2 text-[28px] font-bold tracking-[-0.04em] text-[#2f2442]">
+                  {user?.public_favorites_count ?? likedTracks.length}
+                </p>
+              </div>
+              <div className="rounded-[20px] bg-[#faf8fd] px-4 py-3">
+                <div className="flex items-center gap-2 text-[11px] text-[#9b91af]">
+                  <Headphones size={13} />
+                  <span>Following</span>
+                </div>
+                <p className="mt-2 text-[28px] font-bold tracking-[-0.04em] text-[#2f2442]">
+                  {user?.followings_count ?? 0}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2.5">
+              {yourActivity.map((track) => (
+                <ActivityItem
+                  key={track.urn}
+                  avatar={track.artwork_url}
+                  title={track.title}
+                  subtitle={track.user.username}
+                />
+              ))}
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }

@@ -30,8 +30,15 @@ function statusLabel(
   return isRu ? 'Проверить обновления' : 'Check updates';
 }
 
-export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
+export function SidebarUpdateCard({
+  collapsed,
+  tone = 'dark',
+}: {
+  collapsed: boolean;
+  tone?: 'light' | 'dark';
+}) {
   const isRu = i18n.language?.startsWith('ru');
+  const light = tone === 'light';
   const [status, setStatus] = useState<UpdateStatus>('idle');
   const [progress, setProgress] = useState<number | null>(null);
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
@@ -124,7 +131,11 @@ export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
         aria-label={primaryLabel}
         onClick={() => void primaryAction()}
         disabled={primaryDisabled}
-        className="mt-2 flex h-11 w-full items-center justify-center rounded-[18px] border border-white/[0.06] bg-white/[0.03] text-white/52 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78 disabled:cursor-default disabled:opacity-70"
+        className={`mt-2 flex h-11 w-full items-center justify-center rounded-[18px] border transition-colors duration-200 disabled:cursor-default disabled:opacity-70 ${
+          light
+            ? 'border-[#e6def1] bg-white/70 text-[#6f6387] hover:bg-white hover:text-[#2f2442]'
+            : 'border-white/[0.06] bg-white/[0.03] text-white/52 hover:bg-white/[0.06] hover:text-white/78'
+        }`}
       >
         {status === 'checking' || status === 'installing' ? (
           <Loader2 size={16} className="animate-spin" />
@@ -136,14 +147,24 @@ export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className="mt-2 rounded-[22px] border border-white/[0.06] bg-white/[0.03] p-3">
+    <div
+      className={`mt-2 rounded-[22px] border p-3 ${
+        light
+          ? 'border-[#e6def1] bg-white/68 shadow-[0_14px_40px_rgba(191,181,226,0.18)]'
+          : 'border-white/[0.06] bg-white/[0.03]'
+      }`}
+    >
       <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-[14px] bg-accent/[0.12] text-accent">
+        <div
+          className={`flex h-9 w-9 items-center justify-center rounded-[14px] text-accent ${
+            light ? 'bg-[#fff4ec]' : 'bg-accent/[0.12]'
+          }`}
+        >
           <Sparkles size={15} />
         </div>
         <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-white/82">App</p>
-          <p className="text-[11px] text-white/36">{helper}</p>
+          <p className={`text-[12px] font-semibold ${light ? 'text-[#2f2442]' : 'text-white/82'}`}>App</p>
+          <p className={`text-[11px] ${light ? 'text-[#8c82a2]' : 'text-white/36'}`}>{helper}</p>
         </div>
       </div>
 
@@ -151,7 +172,11 @@ export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
         type="button"
         onClick={() => void primaryAction()}
         disabled={primaryDisabled}
-        className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-white/[0.08] px-3 py-3 text-[12px] font-semibold text-white/82 transition-colors duration-200 hover:bg-white/[0.12] disabled:cursor-default disabled:opacity-70"
+        className={`mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] px-3 py-3 text-[12px] font-semibold transition-colors duration-200 disabled:cursor-default disabled:opacity-70 ${
+          light
+            ? 'bg-[#2f2442] text-white hover:bg-[#241a36]'
+            : 'bg-white/[0.08] text-white/82 hover:bg-white/[0.12]'
+        }`}
       >
         {status === 'checking' || status === 'installing' ? (
           <Loader2 size={14} className="animate-spin" />
@@ -165,7 +190,11 @@ export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
         <button
           type="button"
           onClick={() => void openUrl(installerUrl)}
-          className="flex items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] font-medium text-white/58 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78"
+          className={`flex items-center justify-center gap-1.5 rounded-[14px] border px-3 py-2.5 text-[11px] font-medium transition-colors duration-200 ${
+            light
+              ? 'border-[#e6def1] bg-white/70 text-[#6f6387] hover:bg-white hover:text-[#2f2442]'
+              : 'border-white/[0.06] bg-white/[0.02] text-white/58 hover:bg-white/[0.06] hover:text-white/78'
+          }`}
         >
           <Download size={13} />
           <span>{isRu ? 'Установщик' : 'Installer'}</span>
@@ -173,7 +202,11 @@ export function SidebarUpdateCard({ collapsed }: { collapsed: boolean }) {
         <button
           type="button"
           onClick={() => void openUrl('ms-settings:appsfeatures')}
-          className="flex items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] font-medium text-white/58 transition-colors duration-200 hover:bg-white/[0.06] hover:text-white/78"
+          className={`flex items-center justify-center gap-1.5 rounded-[14px] border px-3 py-2.5 text-[11px] font-medium transition-colors duration-200 ${
+            light
+              ? 'border-[#e6def1] bg-white/70 text-[#6f6387] hover:bg-white hover:text-[#2f2442]'
+              : 'border-white/[0.06] bg-white/[0.02] text-white/58 hover:bg-white/[0.06] hover:text-white/78'
+          }`}
         >
           <Trash2 size={13} />
           <span>{isRu ? 'Удалить' : 'Uninstall'}</span>
